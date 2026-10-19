@@ -1,0 +1,17 @@
+# Local work directory and backups
+.work/
+__pycache__/
+*.pyc
+
+# Android and Java build artifacts
+*.apk
+*.dex
+*.class
+bin/
+obj/
+*.ap_
+
+# Logs and system files
+*.log
+Thumbs.db
+.DS_Store
