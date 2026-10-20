@@ -77,6 +77,16 @@ public class S6AudioGeneratorService extends Service {
     private AudioTrack mAudioTrack;
     private volatile boolean mIsRunning = false;
     private volatile boolean mPhaseResetRequested = false;
+    // Pure-sine woofer protection (2026-10-20 user receipt: roar/noise on all 3 devices).
+    // Gain ramps 0->1 over 1.0 s on start and 1->0 over 0.5 s on stop: a step from silence to
+    // full scale is a broadband click that slams the cone. Below 20 Hz a vented woofer unloads
+    // and over-excurses (the roar), so the carrier floor is 20 Hz.
+    private static final double FREQ_FLOOR_HZ = 20.0;
+    private static final double FADE_IN_SEC = 1.0;
+    private static final double FADE_OUT_SEC = 0.5;
+    private double mGain = 0.0;
+    private volatile boolean mFadeOutRequested = false;
+    private volatile boolean mFadeOutDone = false;
     private volatile boolean mAuditRequested = true;
 
     private Thread mAudioThread;
@@ -341,6 +351,14 @@ public class S6AudioGeneratorService extends Service {
     }
 
     private synchronized void stopAudio() {
+        if (mIsRunning && mAudioThread != null) {
+            mFadeOutDone = false;
+            mFadeOutRequested = true;
+            long until = System.currentTimeMillis() + (long) (FADE_OUT_SEC * 1000) + 300;
+            while (!mFadeOutDone && System.currentTimeMillis() < until) {
+                try { Thread.sleep(20); } catch (InterruptedException e) { break; }
+            }
+        }
         mIsRunning = false;
         sIsPlaying = false;
         sModeTitle = "🛑 [작동 중지] 발진 멈춤 (대기 상태)";
@@ -413,13 +431,13 @@ public class S6AudioGeneratorService extends Service {
                 if (sweepPhase >= twoPi) sweepPhase -= twoPi;
             }
             if (baseFreq > 55.0) baseFreq = 55.0;
-            if (baseFreq < 1.0) baseFreq = 1.0;
+            if (baseFreq < FREQ_FLOOR_HZ) baseFreq = FREQ_FLOOR_HZ;
 
             // 2. Frequency Modulation (FM / Vibrato)
             double instFreq = baseFreq;
             if (fmOn && fmDepth > 0.0) {
                 double fmOffset = baseFreq * fmDepth * Math.sin(fmPhase);
-                instFreq = Math.max(1.0, Math.min(55.0, baseFreq + fmOffset));
+                instFreq = Math.max(FREQ_FLOOR_HZ, Math.min(55.0, baseFreq + fmOffset));
                 fmPhase += fmStep;
                 if (fmPhase >= twoPi) fmPhase -= twoPi;
             }
@@ -462,6 +480,14 @@ public class S6AudioGeneratorService extends Service {
             final double TRUE_PEAK_CEILING = 0.89125; // -1.0 dBTP True-Peak Headroom
             if (sig > 1.0) sig = 1.0;
             else if (sig < -1.0) sig = -1.0;
+            if (mFadeOutRequested) {
+                mGain -= invSr / FADE_OUT_SEC;
+                if (mGain <= 0.0) { mGain = 0.0; mFadeOutDone = true; }
+            } else if (mGain < 1.0) {
+                mGain += invSr / FADE_IN_SEC;
+                if (mGain > 1.0) mGain = 1.0;
+            }
+            sig *= mGain;
 
             long quant = Math.round(sig * 32767.0 * TRUE_PEAK_CEILING);
             if (quant > 29200L) quant = 29200L;
@@ -533,6 +559,9 @@ public class S6AudioGeneratorService extends Service {
         }
         mIsRunning = true;
         sIsPlaying = true;
+        mGain = 0.0;
+        mFadeOutRequested = false;
+        mFadeOutDone = false;
 
         int minBuf = AudioTrack.getMinBufferSize(
                 SAMPLE_RATE,
@@ -564,11 +593,8 @@ public class S6AudioGeneratorService extends Service {
                 long lastAuditTime = 0;
 
                 while (mIsRunning && !Thread.currentThread().isInterrupted()) {
-                    if (mPhaseResetRequested) {
-                        mPhaseResetRequested = false;
-                        state[0] = 0.0;
-                        state[1] = 0.0;
-                    }
+                    // Phase stays continuous across preset changes: a phase jump is a click.
+                    mPhaseResetRequested = false;
 
                     boolean isSweep = sIsSweepMode;
                     double sweepMin = sSweepMin;
@@ -585,14 +611,14 @@ public class S6AudioGeneratorService extends Service {
                     double amDepth = sAmDepth;
                     double amRate = sAmRateHz;
 
-                    boolean rmOn = sRmEnabled;
+                    boolean rmOn = false; // pure sine: ring-mod sidebands off
                     double rmDepth = sRmDepth;
                     double rmRate = sRmRateHz;
 
                     float boostDb = sBassBoostDb;
                     int limiter = sLimiterMode;
                     int channel = sChannelMode;
-                    boolean exciter = sHarmonicExciter;
+                    boolean exciter = false; // pure sine: no added 2nd harmonic
 
                     int writtenShorts = synthesizeFrameBuffer(
                             pcmBuffer,
