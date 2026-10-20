@@ -22,7 +22,7 @@ import android.util.Log;
 public class S7AudioGeneratorService extends Service {
     private static final String TAG = "S7AudioSvc";
     private static final String AUDIT_TAG = "S7AudioAudit";
-    private static final String CHANNEL_ID = "vorta_reso_s7_channel";
+    private static final String CHANNEL_ID = "vorta_reso_s7_silent_v3";
     private static final int NOTIFICATION_ID = 3001;
 
     // Native hardware mixer rate of Galaxy S7 AudioOut_D (48,000 Hz, HAL frame count 960)
@@ -68,8 +68,10 @@ public class S7AudioGeneratorService extends Service {
     public static volatile float sRmDepth = 0.0f;
     public static volatile float sRmRateHz = 1.0f;
 
+    public static volatile String sActivePart = "[메인 파트]";
+    public static volatile String sScenarioName = "[오전 07~13시] 표준 스케줄";
     public static volatile String sModeTitle = "보르타 레조 S7 v2.8 대기 중";
-    public static volatile String sKnobGuide = "120W 우퍼 앰프: VOL 12~1시(정격 60W 풀파워) | FREQ 80~100Hz | BASS +2dB";
+    public static volatile String sKnobGuide = "스마토 앰프 #2: 단일 볼륨 11시~1시 (순수 사인파 240W 스테레오)";
     public static volatile int sLastPeak = 32767;
     public static volatile double sLastRmsDb = -3.01;
     public static volatile double sLastDcOffset = 0.0;
@@ -79,6 +81,15 @@ public class S7AudioGeneratorService extends Service {
     private volatile boolean mIsRunning = false;
     private volatile boolean mPhaseResetRequested = false;
     private volatile boolean mAuditRequested = true;
+
+    // Woofer protection (principle 15): 1 s fade-in, 0.5 s fade-out, continuous phase, no clicks.
+    // Engine safety only; scenario Hz/RM/boost are never altered (principle 16).
+    private static final double FREQ_FLOOR_HZ = 1.0;
+    private static final double FADE_IN_SEC = 1.0;
+    private static final double FADE_OUT_SEC = 0.5;
+    private static volatile double sGain = 0.0;
+    private static volatile boolean sFadeOutRequested = false;
+    private static volatile boolean sFadeOutDone = false;
 
     private Thread mAudioThread;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -105,8 +116,20 @@ public class S7AudioGeneratorService extends Service {
                 .apply();
     }
 
+    public static void muteSystemAlertStreams(Context context) {
+        try {
+            AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                am.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_RING, 0, 0);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     public void onCreate() {
+        muteSystemAlertStreams(this);
         super.onCreate();
         loadConfig(this);
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -119,6 +142,16 @@ public class S7AudioGeneratorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        muteSystemAlertStreams(this);
+        if (intent != null) {
+            if (intent.hasExtra("part")) {
+                sActivePart = intent.getStringExtra("part");
+            }
+            if (intent.hasExtra("scenario")) {
+                sScenarioName = intent.getStringExtra("scenario");
+            }
+        }
+
         if (intent != null) {
             String action = intent.getStringExtra("action");
             if ("stop".equalsIgnoreCase(action)) {
@@ -351,6 +384,7 @@ public class S7AudioGeneratorService extends Service {
             } else {
                 baseFreq = targetFreq;
             }
+            if (baseFreq < FREQ_FLOOR_HZ) baseFreq = FREQ_FLOOR_HZ;
 
             // 1. Frequency Modulation (FM / Vibrato): f_inst = f_base * (1 + d_FM * sin(phi_FM))
             double instFreq = baseFreq;
@@ -393,22 +427,25 @@ public class S7AudioGeneratorService extends Service {
                 if (rmPhase >= twoPi) rmPhase -= twoPi;
             }
 
-            // 5. Vorta DSP Sub-Bass Tuner + True-Peak Limiter / Normalized Analog Saturator
-            if (driveK > 1.001) {
-                if (limiterMode == 1) {
-                    sig = Math.tanh(driveK * sig) * invTanhK;
-                } else {
-                    sig = Math.tanh(driveK * 0.85 * sig) / Math.tanh(driveK * 0.85);
-                }
-            } else {
-                if (sig > 1.0) sig = 1.0;
-                else if (sig < -1.0) sig = -1.0;
-            }
+                        // 5. Pure Undistorted Sine Wave Engine (-1.0 dBTP True-Peak Ceiling)
+            // Eliminates harmonic distortion, clipping buzzing, and voice coil overheating,
+            // focusing 100% acoustic energy into pure fundamental kinetic vibration!
+            final double TRUE_PEAK_CEILING = 0.89125; // -1.0 dBTP True-Peak Headroom
+            if (sig > 1.0) sig = 1.0;
+            else if (sig < -1.0) sig = -1.0;
 
-            // 6. Symmetric nearest-integer quantization at exact 16-bit full scale (32767 = 0.00 dBFS)
-            long quant = Math.round(sig * 32767.0);
-            if (quant > 32767L) quant = 32767L;
-            if (quant < -32767L) quant = -32767L;
+            if (sFadeOutRequested) {
+                sGain -= 1.0 / (FADE_OUT_SEC * SAMPLE_RATE);
+                if (sGain <= 0.0) { sGain = 0.0; sFadeOutDone = true; }
+            } else if (sGain < 1.0) {
+                sGain += 1.0 / (FADE_IN_SEC * SAMPLE_RATE);
+                if (sGain > 1.0) sGain = 1.0;
+            }
+            sig *= sGain;
+
+            long quant = Math.round(sig * 32767.0 * TRUE_PEAK_CEILING);
+            if (quant > 29200L) quant = 29200L;
+            if (quant < -29200L) quant = -29200L;
             short sample = (short) quant;
 
             // 7. Vorta DSP Channel Phase & Balance Matrix (Tailored for S7 L/R 2-Woofer Stereo)
@@ -472,6 +509,9 @@ public class S7AudioGeneratorService extends Service {
         }
         mIsRunning = true;
         sIsPlaying = true;
+        sGain = 0.0;
+        sFadeOutRequested = false;
+        sFadeOutDone = false;
 
         int minBuf = AudioTrack.getMinBufferSize(
                 SAMPLE_RATE,
@@ -519,15 +559,8 @@ public class S7AudioGeneratorService extends Service {
                 }
 
                 while (mIsRunning) {
-                    if (mPhaseResetRequested) {
-                        state[0] = 0.0;
-                        state[1] = 0.0;
-                        state[2] = 0.0;
-                        state[3] = 0.0;
-                        state[4] = 0.0;
-                        state[5] = 0.0;
-                        mPhaseResetRequested = false;
-                    }
+                    // Phase stays continuous on scenario change: a reset jump clicks the cone.
+                    mPhaseResetRequested = false;
 
                     int shorts = fillModulatedChunk(stereoChunk, CHUNK_FRAMES, state,
                             sIsSweepMode, sTargetFreq, sSubFreq, sSweepMin, sSweepMax, sSweepPeriodSec,
@@ -552,6 +585,13 @@ public class S7AudioGeneratorService extends Service {
     }
 
     private synchronized void stopAudio() {
+        if (mIsRunning && mAudioThread != null) {
+            sFadeOutRequested = true;
+            long t0 = System.currentTimeMillis();
+            while (!sFadeOutDone && System.currentTimeMillis() - t0 < 800) {
+                try { Thread.sleep(20); } catch (InterruptedException ignored) { break; }
+            }
+        }
         mIsRunning = false;
         sIsPlaying = false;
         if (mAudioThread != null) {

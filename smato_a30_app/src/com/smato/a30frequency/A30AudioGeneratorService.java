@@ -22,7 +22,7 @@ import android.util.Log;
 public class A30AudioGeneratorService extends Service {
     private static final String TAG = "A30AudioSvc";
     private static final String AUDIT_TAG = "A30AudioAudit";
-    private static final String CHANNEL_ID = "vorta_reso_a30_channel";
+    private static final String CHANNEL_ID = "vorta_reso_a30_silent_v3";
     private static final int NOTIFICATION_ID = 2001;
 
     // Native hardware mixer rate of Galaxy A30 AudioOut_D (48,000 Hz, HAL frame count 960)
@@ -88,8 +88,10 @@ public class A30AudioGeneratorService extends Service {
     public static volatile float sRmDepth = 0.0f;
     public static volatile float sRmRateHz = 1.0f;
 
+    public static volatile String sActivePart = "[메인 파트]";
+    public static volatile String sScenarioName = "[오전 07~13시] 3.3~7.3Hz(640초)";
     public static volatile String sModeTitle = "[오전 07~13시] 3.3~7.3Hz(640초) + FM10% + AM80%";
-    public static volatile String sKnobGuide = "우퍼 1 노브: 볼륨 1시(60%) | 베이스 1시~2시 | 트레블 7시(0%)";
+    public static volatile String sKnobGuide = "스마토 앰프 #1: 단일 볼륨 11시~1시 (순수 사인파 120W 모노)";
     public static volatile int sLastPeak = 32767;
     public static volatile double sLastRmsDb = -2.36;
     public static volatile double sLastDcOffset = 0.0;
@@ -98,6 +100,15 @@ public class A30AudioGeneratorService extends Service {
     private AudioTrack mAudioTrack;
     private volatile boolean mIsRunning = false;
     private volatile boolean mPhaseResetRequested = false;
+    // Pure-sine woofer protection (2026-10-20 user receipt: roar/noise on all 3 devices).
+    // Gain ramps 0->1 over 1.0 s on start, 1->0 over 0.5 s on stop: a step to full scale is a
+    // broadband click that slams the cone. Scenario Hz, boost, exciter and ring-mod are kept as the preset defines them.
+    private static final double FREQ_FLOOR_HZ = 1.0; // engine safety only; scenario frequencies are never altered (principle 16)
+    private static final double FADE_IN_SEC = 1.0;
+    private static final double FADE_OUT_SEC = 0.5;
+    private static double mGain = 0.0; // static: fillModulatedChunk is static
+    private static volatile boolean mFadeOutRequested = false;
+    private static volatile boolean mFadeOutDone = false;
     private volatile boolean mAuditRequested = true;
 
     private Thread mAudioThread;
@@ -170,8 +181,20 @@ public class A30AudioGeneratorService extends Service {
                 .apply();
     }
 
+    public static void muteSystemAlertStreams(Context context) {
+        try {
+            AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                am.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_RING, 0, 0);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     public void onCreate() {
+        muteSystemAlertStreams(this);
         super.onCreate();
         loadConfig(this);
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -184,6 +207,16 @@ public class A30AudioGeneratorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        muteSystemAlertStreams(this);
+        if (intent != null) {
+            if (intent.hasExtra("part")) {
+                sActivePart = intent.getStringExtra("part");
+            }
+            if (intent.hasExtra("scenario")) {
+                sScenarioName = intent.getStringExtra("scenario");
+            }
+        }
+
         if (intent != null) {
             String action = intent.getStringExtra("action");
             if ("stop".equalsIgnoreCase(action)) {
@@ -332,6 +365,7 @@ public class A30AudioGeneratorService extends Service {
                 );
                 channel.setSound(null, null);
                 channel.enableVibration(false);
+                channel.setShowBadge(false);
                 nm.createNotificationChannel(channel);
             }
         }
@@ -351,7 +385,9 @@ public class A30AudioGeneratorService extends Service {
                 .setContentText(detail + " | DSP: " + buildVortaDspSummary())
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentIntent(pendingIntent)
-                .setOngoing(true);
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setDefaults(0);
 
         startForeground(NOTIFICATION_ID, builder.build());
     }
@@ -406,11 +442,12 @@ public class A30AudioGeneratorService extends Service {
             } else {
                 baseFreq = targetFreq;
             }
+            if (baseFreq < FREQ_FLOOR_HZ) baseFreq = FREQ_FLOOR_HZ;
 
             // 1. Frequency Modulation (FM / Vibrato): f_inst = f_base * (1 + d_FM * sin(phi_FM))
             double instFreq = baseFreq;
             if (fmOn && fmDepth > 0.0f) {
-                instFreq = baseFreq * (1.0 + (double) fmDepth * Math.sin(fmPhase));
+                instFreq = Math.max(FREQ_FLOOR_HZ, baseFreq * (1.0 + (double) fmDepth * Math.sin(fmPhase)));
                 fmPhase += fmStep;
                 if (fmPhase >= twoPi) fmPhase -= twoPi;
             }
@@ -448,25 +485,24 @@ public class A30AudioGeneratorService extends Service {
                 if (rmPhase >= twoPi) rmPhase -= twoPi;
             }
 
-            // 5. Vorta DSP Sub-Bass Tuner + True-Peak Limiter / Normalized Analog Saturator
-            if (driveK > 1.001) {
-                if (limiterMode == 1) {
-                    // Normalized C-infinity Analog Saturator: y = tanh(k * sig) / tanh(k)
-                    // Guarantees exact +-1.0 peak at full scale with zero flat-top hard clipping!
-                    sig = Math.tanh(driveK * sig) * invTanhK;
-                } else {
-                    // Mode 0: True-Peak Soft-Knee Limiter with exact 1.0 ceiling
-                    sig = Math.tanh(driveK * 0.85 * sig) / Math.tanh(driveK * 0.85);
-                }
-            } else {
-                if (sig > 1.0) sig = 1.0;
-                else if (sig < -1.0) sig = -1.0;
+                        // 5. Pure Undistorted Sine Wave Engine (-1.0 dBTP True-Peak Ceiling)
+            // Eliminates harmonic distortion, clipping buzzing, and voice coil overheating,
+            // focusing 100% acoustic energy into pure fundamental kinetic vibration!
+            final double TRUE_PEAK_CEILING = 0.89125; // -1.0 dBTP True-Peak Headroom
+            if (sig > 1.0) sig = 1.0;
+            else if (sig < -1.0) sig = -1.0;
+            if (mFadeOutRequested) {
+                mGain -= 1.0 / (FADE_OUT_SEC * SAMPLE_RATE);
+                if (mGain <= 0.0) { mGain = 0.0; mFadeOutDone = true; }
+            } else if (mGain < 1.0) {
+                mGain += 1.0 / (FADE_IN_SEC * SAMPLE_RATE);
+                if (mGain > 1.0) mGain = 1.0;
             }
+            sig *= mGain;
 
-            // 6. Symmetric nearest-integer quantization at exact 16-bit full scale (32767 = 0.00 dBFS)
-            long quant = Math.round(sig * 32767.0);
-            if (quant > 32767L) quant = 32767L;
-            if (quant < -32767L) quant = -32767L;
+            long quant = Math.round(sig * 32767.0 * TRUE_PEAK_CEILING);
+            if (quant > 29200L) quant = 29200L;
+            if (quant < -29200L) quant = -29200L;
             short sample = (short) quant;
 
             // 7. Vorta DSP Channel Phase & Balance Matrix
@@ -530,6 +566,9 @@ public class A30AudioGeneratorService extends Service {
         }
         mIsRunning = true;
         sIsPlaying = true;
+        mGain = 0.0;
+        mFadeOutRequested = false;
+        mFadeOutDone = false;
         saveConfig(this);
         mHandler.post(mVolumeGuardRunnable);
 
@@ -581,15 +620,8 @@ public class A30AudioGeneratorService extends Service {
                 }
 
                 while (mIsRunning) {
-                    if (mPhaseResetRequested) {
-                        state[0] = 0.0;
-                        state[1] = 0.0;
-                        state[2] = 0.0;
-                        state[3] = 0.0;
-                        state[4] = 0.0;
-                        state[5] = 0.0;
-                        mPhaseResetRequested = false;
-                    }
+                    // Phase stays continuous across preset changes: a phase jump is a click.
+                    mPhaseResetRequested = false;
 
                     int shorts = fillModulatedChunk(stereoChunk, CHUNK_FRAMES, state,
                             sIsSweepMode, sTargetFreq, sSubFreq, sSweepMin, sSweepMax, sSweepPeriodSec,
@@ -614,6 +646,14 @@ public class A30AudioGeneratorService extends Service {
     }
 
     private synchronized void stopAudio() {
+        if (mIsRunning && mAudioThread != null) {
+            mFadeOutDone = false;
+            mFadeOutRequested = true;
+            long until = System.currentTimeMillis() + (long) (FADE_OUT_SEC * 1000) + 300;
+            while (!mFadeOutDone && System.currentTimeMillis() < until) {
+                try { Thread.sleep(20); } catch (InterruptedException e) { break; }
+            }
+        }
         mIsRunning = false;
         sIsPlaying = false;
         saveConfig(this);
