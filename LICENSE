@@ -1,0 +1,37 @@
+Copyright (c) 2026 gyeomsVibe (김윤겸). All Rights Reserved.
+
+Vorta Reso Frequency Tone Generator — Proprietary License
+
+1. Ownership. This repository, including all source code, build scripts,
+   APK files, documents, presets, and scenario data (the "Software"), is the
+   exclusive property of the copyright holder.
+
+2. Permitted use. You may view the Software and run it solely to evaluate it
+   or to watch a demonstration given by or for the copyright holder.
+
+3. Prohibited without prior written permission:
+   a. copying, modifying, translating, or creating derivative works;
+   b. distributing, sublicensing, selling, renting, or publishing the
+      Software or any APK built from it;
+   c. any commercial use, including use in products or services;
+   d. reverse engineering the APK files, except where law forbids this ban.
+
+4. No implied license. Making this repository publicly visible does not grant
+   any license. Except for the use in section 2, all rights are reserved.
+
+5. Not a medical device. The Software is not intended to diagnose, treat,
+   cure, or prevent any disease, and makes no health claims.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND. THE COPYRIGHT HOLDER IS NOT LIABLE FOR ANY DAMAGE TO SPEAKERS,
+   AMPLIFIERS, PHONES, BATTERIES, OR PROPERTY, OR FOR ANY OTHER CLAIM,
+   ARISING FROM USE OF THE SOFTWARE.
+
+7. Licensing inquiries: https://github.com/gyeomsVibe
+
+---
+[한국어 요약 — 법적 효력은 위 영문이 우선]
+- 저작권자: gyeomsVibe(김윤겸). 모든 권리를 보유합니다. 오픈소스가 아닙니다.
+- 허용: 평가 목적의 열람·실행, 시연 참관.
+- 금지(서면 허락 필요): 복사·수정·배포·판매·상업적 사용, APK 역설계.
+- 의료기기가 아니며, 스피커·앰프·폰·배터리 손상에 대한 책임을 지지 않습니다.
