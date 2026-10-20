@@ -66,10 +66,15 @@ com.kt.service.cs
 uplus.membership
 com.lguplus.mobile.cs
 com.lguplus.smartpay
+com.sec.android.app.samsungapps
+com.sec.android.widgetapp.samsungapps
 "
 
+# Hang receipt 2026-10-20: plain `timeout 8` sends TERM only; a pm that ignores it blocks forever.
+# -k 2 sends KILL 2 s later; absent packages are skipped without calling pm uninstall.
 for p in $PKGS; do echo "[pm] $p"
-    timeout 8 pm uninstall --user 0 "$p" >/dev/null 2>&1
-    timeout 8 pm disable-user --user 0 "$p" >/dev/null 2>&1
+    pm path "$p" >/dev/null 2>&1 || continue
+    timeout -k 2 8 pm uninstall --user 0 "$p" </dev/null >/dev/null 2>&1       || timeout -k 2 8 pm disable-user --user 0 "$p" </dev/null >/dev/null 2>&1
 done
+echo "[pm] done"
 exit 0

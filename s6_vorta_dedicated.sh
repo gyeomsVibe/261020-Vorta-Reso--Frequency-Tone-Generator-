@@ -52,12 +52,12 @@ n=0
 for p in $RM; do
   n=$((n+1))
   pm path "$p" >/dev/null 2>&1 || { log "$n skip(absent) $p"; continue; }
-  r=$(timeout $T pm uninstall --user 0 "$p" 2>&1)
-  case "$r" in *Success*) log "$n removed $p";; *) timeout $T pm disable-user --user 0 "$p" >/dev/null 2>&1; log "$n disabled $p ($r)";; esac
+  r=$(timeout -k 2 $T pm uninstall --user 0 "$p" 2>&1)
+  case "$r" in *Success*) log "$n removed $p";; *) timeout -k 2 $T pm disable-user --user 0 "$p" >/dev/null 2>&1; log "$n disabled $p ($r)";; esac
 done
 for p in $DIS; do
   pm path "$p" >/dev/null 2>&1 || continue
-  timeout $T pm disable-user --user 0 "$p" >/dev/null 2>&1 && log "disabled $p" || log "disable-failed-or-timeout $p"
+  timeout -k 2 $T pm disable-user --user 0 "$p" >/dev/null 2>&1 && log "disabled $p" || log "disable-failed-or-timeout $p"
 done
 
 # 3) 24 h stability: screen sleeps, no animations, no system sounds, app exempt from Doze.
@@ -70,7 +70,7 @@ settings put system adaptive_fast_charging 0
 settings put global audio_safe_volume_state 2
 settings put system volume_limiter_enable 0
 for p in com.sec.android.app.soundalive com.sec.hearingadjust com.enhance.gameservice com.samsung.android.game.gos; do
-  pm path "$p" >/dev/null 2>&1 && timeout $T pm disable-user --user 0 "$p" >/dev/null 2>&1 && log "frozen $p"
+  pm path "$p" >/dev/null 2>&1 && timeout -k 2 $T pm disable-user --user 0 "$p" >/dev/null 2>&1 && log "frozen $p"
 done
 settings put global window_animation_scale 0
 settings put global transition_animation_scale 0
