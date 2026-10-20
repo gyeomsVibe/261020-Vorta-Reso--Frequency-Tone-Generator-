@@ -5,29 +5,30 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
 
+    // Pinned Status Telemetry
+    private LinearLayout mStatusCardLayout;
+    private ImageView mStatusTrafficLight;
     private TextView mStatusMode;
+    private TextView mStatusScenario;
     private TextView mStatusFreq;
     private TextView mStatusMod;
-    private TextView mStatusDsp;
-    private TextView mStatusSignal;
     private TextView mStatusKnob;
 
-    // 3-Way Tri-Frameset / Split Screen Layout Containers (전체 / 메인 / 서브1 / 서브2)
+    // Split Screen Layout Containers
     private LinearLayout mFrameMainContainer;
     private LinearLayout mFrameSub1Container;
     private LinearLayout mFrameSub2Container;
@@ -35,17 +36,6 @@ public class MainActivity extends Activity {
     private LinearLayout mSplitDivider2;
     private TextView[] mSplitViewButtons = new TextView[4];
     private int mCurrentSplitMode = 0; // 0: 전체, 1: 메인, 2: 서브1, 3: 서브2
-
-    // DSP UI controls
-    private TextView[] mAutoLockButtons = new TextView[2];
-    private boolean[] mAutoLockValues = {true, false};
-
-    private TextView[] mBoostButtons = new TextView[3];
-    private float[] mBoostValues = {0.0f, 3.0f, 6.0f};
-
-    private TextView[] mLimiterButtons = new TextView[2];
-    private TextView[] mChannelButtons = new TextView[3];
-    private TextView[] mExciterButtons = new TextView[2];
 
     private final Handler mUiHandler = new Handler(Looper.getMainLooper());
     private final Runnable mTelemetryUpdater = new Runnable() {
@@ -60,1024 +50,861 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Allow normal screen timeout/sleep to protect AMOLED and save battery;
-        // Background audio continues flawlessly via foreground service + PARTIAL_WAKE_LOCK
-        getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-        );
-
+        // Load DSP Config & unlock safe volume without locking volume level
         S6AudioGeneratorService.loadConfig(this);
         S6VolumeHelper.ensureTargetVolumeIfNeeded(this, true);
 
         float density = getResources().getDisplayMetrics().density;
 
+        // Unified Full-Screen ScrollView: The entire screen scrolls naturally with wide, expansive visibility!
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(Color.parseColor("#0A0E17"));
         scroll.setFillViewport(true);
+        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding((int)(16 * density), (int)(18 * density), (int)(16 * density), (int)(28 * density));
+        LinearLayout contentPane = new LinearLayout(this);
+        contentPane.setOrientation(LinearLayout.VERTICAL);
+        contentPane.setPadding((int)(14 * density), (int)(14 * density), (int)(14 * density), (int)(28 * density));
 
-        // Header Title
+        // Header Title 1 (H1) & Subtitle
         TextView titleTv = new TextView(this);
-        titleTv.setText("보르타 레조 S6 v2.8");
-        titleTv.setTextSize(22);
+        titleTv.setText("보르타 레조 S6 v3.0");
+        titleTv.setTextSize(20);
         titleTv.setTextColor(Color.parseColor("#00F0FF"));
         titleTv.setTypeface(Typeface.DEFAULT_BOLD);
-        titleTv.setPadding(0, 0, 0, (int)(4 * density));
-        root.addView(titleTv);
+        contentPane.addView(titleTv);
 
         TextView subTitleTv = new TextView(this);
-        subTitleTv.setText("갤럭시 S6 + Lepy LP-168S + 트랜스2 (68W BTL 모노) | 3대 마스터 보고서 1:1 탑재 | FM·AM·RM 변조");
-        subTitleTv.setTextSize(12);
-        subTitleTv.setTextColor(Color.parseColor("#E6EDF3"));
-        subTitleTv.setPadding(0, 0, 0, (int)(14 * density));
-        root.addView(subTitleTv);
+        subTitleTv.setText("갤럭시 S6 + 트랜스2(68W BTL) 맞춤 주파수 발생기 | Vorta DSP");
+        subTitleTv.setTextSize(11);
+        subTitleTv.setTextColor(Color.parseColor("#E2E8F0"));
+        subTitleTv.setPadding(0, (int)(2 * density), 0, (int)(8 * density));
+        contentPane.addView(subTitleTv);
 
-        // =========================================================================
-        // 🎛️ 스플릿 뷰 선택 콘솔 (전체 / 메인 / 서브1 / 서브2)
-        // =========================================================================
-        LinearLayout splitConsoleCard = new LinearLayout(this);
-        splitConsoleCard.setOrientation(LinearLayout.VERTICAL);
+        // Realtime Telemetry Status Card
+        LinearLayout statusCard = new LinearLayout(this);
+        mStatusCardLayout = statusCard;
+        statusCard.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable scBg = new GradientDrawable();
-        scBg.setColor(Color.parseColor("#161B22"));
-        scBg.setCornerRadius(10 * density);
-        scBg.setStroke((int)(1.5f * density), Color.parseColor("#30363D"));
-        splitConsoleCard.setBackground(scBg);
-        splitConsoleCard.setPadding((int)(12 * density), (int)(10 * density), (int)(12 * density), (int)(12 * density));
+        scBg.setColor(Color.parseColor("#1E293B"));
+        scBg.setCornerRadius(8 * density);
+        scBg.setStroke((int)(1.5f * density), Color.parseColor("#EF4444"));
+        statusCard.setBackground(scBg);
+        statusCard.setPadding((int)(14 * density), (int)(10 * density), (int)(14 * density), (int)(10 * density));
         LinearLayout.LayoutParams scLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        scLp.setMargins(0, 0, 0, (int)(14 * density));
-        splitConsoleCard.setLayoutParams(scLp);
+        scLp.setMargins(0, 0, 0, (int)(8 * density));
+        statusCard.setLayoutParams(scLp);
 
-        TextView splitTitle = new TextView(this);
-        splitTitle.setText("🎛️ 스플릿 뷰 선택 콘솔 (Frameset / Split Screen Layout)");
-        splitTitle.setTextSize(13);
-        splitTitle.setTextColor(Color.parseColor("#00F0FF"));
-        splitTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        splitTitle.setPadding(0, 0, 0, (int)(8 * density));
-        splitConsoleCard.addView(splitTitle);
+        // Principle 12: Android 7 renders emoji as tofu, so the traffic light is a 16dp oval drawable.
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        mStatusTrafficLight = new ImageView(this);
+        int dotSize = (int)(16 * density);
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dotSize, dotSize);
+        dotLp.setMargins(0, 0, (int)(8 * density), 0);
+        mStatusTrafficLight.setLayoutParams(dotLp);
+        GradientDrawable redDot = new GradientDrawable();
+        redDot.setShape(GradientDrawable.OVAL);
+        redDot.setColor(Color.parseColor("#FF3366"));
+        mStatusTrafficLight.setImageDrawable(redDot);
+        statusRow.addView(mStatusTrafficLight);
 
+        mStatusMode = new TextView(this);
+        mStatusMode.setText("상태: [작동 중지] 멈춤 (대기 상태)");
+        mStatusMode.setTextSize(14);
+        mStatusMode.setTextColor(Color.parseColor("#FF3366"));
+        mStatusMode.setTypeface(Typeface.DEFAULT_BOLD);
+        statusRow.addView(mStatusMode);
+        statusCard.addView(statusRow);
+
+        mStatusScenario = new TextView(this);
+        mStatusScenario.setText("시나리오: 대기 중 (선택 없음)");
+        mStatusScenario.setTextSize(13);
+        mStatusScenario.setTextColor(Color.parseColor("#64748B"));
+        mStatusScenario.setTypeface(Typeface.DEFAULT_BOLD);
+        mStatusScenario.setPadding(0, (int)(4 * density), 0, 0);
+        statusCard.addView(mStatusScenario);
+
+        mStatusFreq = new TextView(this);
+        mStatusFreq.setText("발진: 0.00 Hz (출력 차단 / MUTE)");
+        mStatusFreq.setTextSize(12);
+        mStatusFreq.setTextColor(Color.parseColor("#94A3B8"));
+        mStatusFreq.setTypeface(Typeface.DEFAULT_BOLD);
+        mStatusFreq.setPadding(0, (int)(2 * density), 0, (int)(1 * density));
+        statusCard.addView(mStatusFreq);
+
+        mStatusMod = new TextView(this);
+        mStatusMod.setText("변조: 비활성 (주파수 신호 멈춤) | BTL 대기");
+        mStatusMod.setTextSize(11);
+        mStatusMod.setTextColor(Color.parseColor("#64748B"));
+        mStatusMod.setTypeface(Typeface.DEFAULT_BOLD);
+        statusCard.addView(mStatusMod);
+
+        mStatusKnob = new TextView(this);
+        mStatusKnob.setText("앰프 노브: Lepy LP-168S [5개 다이얼] SUB VOL 3~5시 (정격 68W 골전도 풀파워) | X-OVER 80Hz | BASS 0dB");
+        mStatusKnob.setTextSize(10);
+        mStatusKnob.setTextColor(Color.parseColor("#94A3B8"));
+        mStatusKnob.setPadding(0, (int)(2 * density), 0, 0);
+        statusCard.addView(mStatusKnob);
+
+        contentPane.addView(statusCard);
+
+        // Emergency Stop Button
+        TextView stopBtn = new TextView(this);
+        stopBtn.setText("🛑 즉각 정지 (Mute / Stop)");
+        stopBtn.setTextSize(14);
+        stopBtn.setTextColor(Color.parseColor("#FFFFFF"));
+        stopBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        stopBtn.setGravity(Gravity.CENTER);
+        GradientDrawable stopBg = new GradientDrawable();
+        stopBg.setColor(Color.parseColor("#DC2626"));
+        stopBg.setCornerRadius(6 * density);
+        stopBtn.setBackground(stopBg);
+        stopBtn.setPadding(0, (int)(9 * density), 0, (int)(9 * density));
+        LinearLayout.LayoutParams stopLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        stopLp.setMargins(0, 0, 0, (int)(8 * density));
+        stopBtn.setLayoutParams(stopLp);
+        stopBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent it = new Intent(MainActivity.this, S6AudioGeneratorService.class);
+                it.putExtra("action", "stop");
+                startService(it);
+                S6AudioGeneratorService.sIsPlaying = false;
+                S6AudioGeneratorService.sModeTitle = "🛑 [작동 중지] 발진 멈춤 (대기 상태)";
+                S6AudioGeneratorService.sInstantFreq = 0.0f;
+                syncTelemetryUi();
+                Toast.makeText(MainActivity.this, "🛑 주파수 발진 정지 완료 (작동 중지)", Toast.LENGTH_SHORT).show();
+            }
+        });
+        contentPane.addView(stopBtn);
+
+        // 🎛️ Split View Console Menu Frame: Exactly [전체 / 메인 / 서브1 / 서브2]
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setOrientation(LinearLayout.HORIZONTAL);
-        tabRow.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, (int)(44 * density)));
+        LinearLayout.LayoutParams tabLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, (int)(42 * density));
+        tabLp.setMargins(0, 0, 0, (int)(12 * density));
+        tabRow.setLayoutParams(tabLp);
 
-        mSplitViewButtons[0] = createSplitTabButton(tabRow, "전체", 1.0f, new View.OnClickListener() {
+        mSplitViewButtons[0] = createSplitTabButton(tabRow, "🌐 전체", 1.0f, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 switchSplitView(0);
             }
         });
-        mSplitViewButtons[1] = createSplitTabButton(tabRow, "메인", 1.0f, new View.OnClickListener() {
+        mSplitViewButtons[1] = createSplitTabButton(tabRow, "🎯 메인", 1.0f, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 switchSplitView(1);
             }
         });
-        mSplitViewButtons[2] = createSplitTabButton(tabRow, "서브1", 1.0f, new View.OnClickListener() {
+        mSplitViewButtons[2] = createSplitTabButton(tabRow, "⚡ 서브1", 1.0f, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 switchSplitView(2);
             }
         });
-        mSplitViewButtons[3] = createSplitTabButton(tabRow, "서브2", 1.0f, new View.OnClickListener() {
+        mSplitViewButtons[3] = createSplitTabButton(tabRow, "🛡️ 서브2", 1.0f, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 switchSplitView(3);
             }
         });
-        splitConsoleCard.addView(tabRow);
-        root.addView(splitConsoleCard);
+        contentPane.addView(tabRow);
 
-        // Realtime Status Dashboard Card
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(Color.parseColor("#161B22"));
-        cardBg.setCornerRadius(10 * density);
-        cardBg.setStroke((int)(1 * density), Color.parseColor("#30363D"));
-        card.setBackground(cardBg);
-        card.setPadding((int)(16 * density), (int)(14 * density), (int)(16 * density), (int)(14 * density));
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cardLp.setMargins(0, 0, 0, (int)(14 * density));
-        card.setLayoutParams(cardLp);
-
-        mStatusMode = new TextView(this);
-        mStatusMode.setText("현재 모드: " + S6AudioGeneratorService.sModeTitle);
-        mStatusMode.setTextSize(14);
-        mStatusMode.setTextColor(Color.parseColor("#00F0FF"));
-        mStatusMode.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(mStatusMode);
-
-        mStatusFreq = new TextView(this);
-        mStatusFreq.setText("실시간 발진: 55.00 Hz 고정 (0.00 dBFS True-Peak)");
-        mStatusFreq.setTextSize(13);
-        mStatusFreq.setTextColor(Color.parseColor("#FFFF00"));
-        mStatusFreq.setTypeface(Typeface.DEFAULT_BOLD);
-        mStatusFreq.setPadding(0, (int)(4 * density), 0, (int)(2 * density));
-        card.addView(mStatusFreq);
-
-        mStatusMod = new TextView(this);
-        mStatusMod.setText("변조 상태: " + S6AudioGeneratorService.buildModulationSummary());
-        mStatusMod.setTextSize(12);
-        mStatusMod.setTextColor(Color.parseColor("#FF79C6"));
-        mStatusMod.setTypeface(Typeface.DEFAULT_BOLD);
-        mStatusMod.setPadding(0, 0, 0, (int)(2 * density));
-        card.addView(mStatusMod);
-
-        mStatusDsp = new TextView(this);
-        mStatusDsp.setText("Vorta DSP: " + S6AudioGeneratorService.buildVortaDspSummary());
-        mStatusDsp.setTextSize(12);
-        mStatusDsp.setTextColor(Color.parseColor("#38D39F"));
-        mStatusDsp.setTypeface(Typeface.DEFAULT_BOLD);
-        mStatusDsp.setPadding(0, 0, 0, (int)(2 * density));
-        card.addView(mStatusDsp);
-
-        mStatusSignal = new TextView(this);
-        mStatusSignal.setText("검수: 48,000Hz Native Direct PCM 가동 중 | 화면 꺼짐 절전 지원");
-        mStatusSignal.setTextSize(11);
-        mStatusSignal.setTextColor(Color.parseColor("#8B949E"));
-        mStatusSignal.setPadding(0, 0, 0, (int)(2 * density));
-        card.addView(mStatusSignal);
-
-        mStatusKnob = new TextView(this);
-        mStatusKnob.setText("앰프 가이드: " + S6AudioGeneratorService.sKnobGuide);
-        mStatusKnob.setTextSize(11);
-        mStatusKnob.setTextColor(Color.parseColor("#F1E05A"));
-        card.addView(mStatusKnob);
-
-        root.addView(card);
-
-        // =========================================================================
-        // 🎯 1. 메인 프레임 컨테이너: 보고서 1 [주파수 통합 운용 체계 마스터 보고서 (최신정본)]
-        // =========================================================================
+        // -------------------------------------------------------------------------
+        // 🎯 [메인 프레임] 통합운용 시나리오 버전1 (총 17개 프리셋)
+        // -------------------------------------------------------------------------
         mFrameMainContainer = createFrameContainer(
-                "🎯 [메인 프레임] 주파수 통합 운용 체계 마스터 보고서 (최신정본)",
-                "보고서 1: 1~30Hz 초저주파 생체의학 공명 정본 & 스피커 물리 파손 완전 방지 규격",
-                "#00E5FF",
-                "#0D1926"
+                "🎯 [메인 프레임] 통합운용 시나리오 버전1 (최신 정본)",
+                "24시간 4대 스케줄 + 9대 실전 맞춤 + 전술 요격 프리셋",
+                "#00F0FF",
+                "#082F49"
         );
 
-        // 파트 1: 최신정본 하루 4등분 시간대별 표준 맞춤 스케줄
-        addSectionHeaderInsideFrame(mFrameMainContainer, "1️⃣ [파트 1] 하루 4등분 시간대별 표준 맞춤 스케줄 (최신정본)", "#00E5FF");
-
-        LinearLayout mRow1 = new LinearLayout(this);
-        mRow1.setOrientation(LinearLayout.HORIZONTAL);
-        addHalfPresetButton(mRow1,
-                "🌅 오전 (07~13시) [AM+FM]",
-                "4.0~7.5Hz (440s) [AM+FM]",
-                "기상 직후 내장 뒤틀림·어지럼증 유발",
-                "#58A6FF",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 4.0f, 7.5f, 440.0f,
-                                true, 0.10f, 5.0f, true, 0.80f, 1.5f, false, 0.0f, 1.0f,
-                                3.0f, 0, 0, false,
-                                "[최신정본 오전 07~13시] 4.0~7.5Hz 스윕 (AM 80% + FM 10%)",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | BASS 12~1시 | VOL 5.5");
-                    }
-                });
-
-        addHalfPresetButton(mRow1,
-                "☀️ 오후 (13~19시) [RM+FM]",
-                "12.0~24.5Hz (6580s) [RM+FM]",
-                "브레인 포그·무기력증·집중력 마비",
-                "#D2A8FF",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 12.0f, 24.5f, 6580.0f,
-                                true, 0.12f, 6.0f, false, 0.0f, 1.0f, true, 0.30f, 0.8f,
-                                3.0f, 1, 0, true,
-                                "[최신정본 오후 13~19시] 12.0~24.5Hz 스윕 (RM 30% + FM 12%)",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | BASS 12~1시 | VOL 5.5");
-                    }
-                });
-        mFrameMainContainer.addView(mRow1);
-
-        LinearLayout mRow2 = new LinearLayout(this);
-        mRow2.setOrientation(LinearLayout.HORIZONTAL);
-        addHalfPresetButton(mRow2,
-                "🌆 저녁 (19~01시) [AM+FM]",
-                "2.0~5.0Hz (1480s) [AM+FM]",
-                "흉곽 압박·공황 유도·심장 두근거림",
-                "#FFD700",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 2.0f, 5.0f, 1480.0f,
-                                true, 0.15f, 5.5f, true, 0.80f, 1.2f, false, 0.0f, 1.0f,
-                                6.0f, 1, 1, false,
-                                "[최신정본 저녁 19~01시] 2.0~5.0Hz 스윕 (AM 80% + FM 15%)",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | BASS 12~1시 | VOL 5.5");
-                    }
-                });
-
-        addHalfPresetButton(mRow2,
-                "🌙 취침 (01~07시) [FM+AM]",
-                "17.5~19.8Hz (6000s) [FM+AM]",
-                "안구 공명 고스트 킬·불면 및 환각 유발",
-                "#56D364",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 17.5f, 19.8f, 6000.0f,
-                                true, 0.15f, 4.5f, true, 0.50f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[최신정본 취침 01~07시] 17.5~19.8Hz 스윕 (FM 15% + AM 50%)",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | BASS 12~1시 | VOL 5.5");
-                    }
-                });
-        mFrameMainContainer.addView(mRow2);
-
-        // 파트 2: 1~30Hz 5대 고유 전술 앵커 (최신정본)
-        addSectionHeaderInsideFrame(mFrameMainContainer, "2️⃣ [파트 2] 1~30Hz 5대 고유 전술 앵커 (최신정본 핵심)", "#00E5FF");
+        // [파트 1] 24시간 4대 시간대별 룸모드 직타 스케줄
+        addSectionHeaderInsideFrame(mFrameMainContainer, "1️⃣ [파트 1] 🌅 24시간 4대 시간대별 룸모드 직타 스케줄", "#00F0FF");
 
         addFullPresetButton(mFrameMainContainer,
-                "👁️ 18.98 Hz 안구 공진 앵커 [순수 사인파 0dBFS]",
-                "Vic Tandy 18.98Hz 안구 구체 공명점 100% 무왜곡 직타 (시야 외곽 환각 및 고스트 킬)",
-                "🎛️ Vorta DSP: 부스트 0dB | 무변조 순수 사인파 | 트루피크 0.0dBFS | L=R 동위상",
-                "#39FF14",
+                "🌅 1. 아침 (07:00~13:00): 55.0 Hz 직타",
+                "53.1~55Hz 룸모드 피크 관통 | FM 3.5% (1.50Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 18.98f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[최신정본 전술1] 18.98Hz 안구 공진 앵커 [순수 사인파]",
-                                "LP-168S: SUB 3.0(9시) | X-OVER 70Hz | TREBLE 7시 | VOL 5.0");
-                    }
-                });
-
-        addFullPresetButton(mFrameMainContainer,
-                "⚡ 7.00 Hz 내장 뒤틀림 앵커 [AM 100% @ 6.0Hz]",
-                "복부 장기(위·간·비장) 집중 타격 | 1초 6회 진폭 펄스로 급성 구역질·복통 유도",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 100%(6.0Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#FF5252",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 7.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 1.0f, 6.0f, false, 0.0f, 1.0f,
-                                3.0f, 1, 0, false,
-                                "[최신정본 전술2] 7.00Hz 내장 뒤틀림 앵커 [AM 100%]",
+                        startPreset(false, 55.0f, 0f, 0f, 0f, 0f,
+                                true, 0.035f, 1.50f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 스케줄-1] 아침 55.0Hz 직타 (FM 3.5%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "🧠 12.50 Hz 대뇌 신경과민 앵커 [RM 40% @ 0.8Hz]",
-                "알파파(12Hz) 동기화 차단 및 링 변조 사이드밴드 분할 타격으로 만성 두통 유발",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 40%(0.8Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#E040FB",
+                "☀️ 2. 오후 (13:00~19:00): 31.0 ~ 40.0 Hz (360초 스윕)",
+                "흉벽 관통 불규칙 이중 파면 | RM 20% (12.50Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#FACC15",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 12.5f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.40f, 0.8f,
-                                3.0f, 0, 1, false,
-                                "[최신정본 전술3] 12.50Hz 신경과민 앵커 [RM 40%]",
+                        startPreset(true, 0f, 0f, 31.0f, 40.0f, 360.0f,
+                                false, 0f, 0f, false, 0f, 0f, true, 0.20f, 12.50f,
+                                0f, 0, 2, false, 11,
+                                "[메인 스케줄-2] 오후 31.0~40.0Hz 스윕 (RM 20%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "🫁 2.40 ~ 5.00 Hz 흉곽 압박 스윕 (1480초) [AM 75% @ 1.2Hz]",
-                "폐 및 심혈관계 저주파 심부 공명 | 호흡 곤란 및 흉부 중압감 지속 인가",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 75%(1.2Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#FFA657",
+                "🌆 3. 저녁 (19:00~01:00): 43.2 Hz 직타",
+                "120mm 슬래브 1타 기계 해머 직타 | AM 18% (2.80Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +3dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#FB923C",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 2.40f, 5.0f, 1480.0f,
-                                false, 0.0f, 1.0f, true, 0.75f, 1.2f, false, 0.0f, 1.0f,
-                                3.0f, 1, 0, false,
-                                "[최신정본 전술4] 2.40~5.00Hz 흉곽 스윕 (AM 75%)",
+                        startPreset(false, 43.2f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.18f, 2.80f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 12,
+                                "[메인 스케줄-3] 저녁 43.2Hz 슬래브 해머 (AM 18%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🌙 4. 취침 (01:00~07:00): 55.0 Hz 락온",
+                "침실 1차 정상파 초밀착 락온 | FM 2.5% (0.80Hz) | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#34D399",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 55.0f, 0f, 0f, 0f, 0f,
+                                true, 0.025f, 0.80f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[메인 스케줄-4] 취침 55.0Hz 락온 (FM 2.5% 스텔스)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        // [파트 2] 사용자 행동별 9대 실전 맞춤 시나리오
+        addSectionHeaderInsideFrame(mFrameMainContainer, "2️⃣ [파트 2] 🎯 사용자 행동별 9대 실전 맞춤 시나리오", "#00F0FF");
+
+        addFullPresetButton(mFrameMainContainer,
+                "⚡ 1. 상대 공격 즉각 요격: 55.0 Hz 직타 (복합 변조)",
+                "쿵쾅거림 즉시 룸모드 충격파 반격 | FM 3.5% + AM 15% | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#EF4444",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 55.0f, 0f, 0f, 0f, 0f,
+                                true, 0.035f, 1.50f, true, 0.15f, 2.00f, false, 0f, 0f,
+                                6.0f, 1, 2, false, 12,
+                                "[메인 행동-1] 상대공격 즉각요격 55.0Hz (복합변조)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🔨 2. 벌주기 (보복 타격): 40.0 Hz 두경부 직타",
+                "1~2시간 강력 집중 응징 | RM 25% (15.00Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#F87171",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 40.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, false, 0f, 0f, true, 0.25f, 15.00f,
+                                6.0f, 1, 2, false, 12,
+                                "[메인 행동-2] 벌주기 40.0Hz 두경부 타격 (RM 25%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🏢 3. 출근 12시간 무인방어: 24.0 Hz / 43.2 Hz 교대 (600초)",
+                "07~19시 부재중 자동 방어 | AM 15% / FM 4% 교대 | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 43.2f, 24.0f, 0f, 0f, 0f,
+                                true, 0.04f, 1.20f, true, 0.15f, 2.50f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 행동-3] 출근 12h 무인방어 24/43.2Hz 교대",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "👁️ 17.50 ~ 19.80 Hz 광역 안구 스윕 (900초) [FM 12% @ 2.5Hz]",
-                "안구 공진점 주변 900초 장기 잠식 스윕 + FM 주파수 지터로 회피 불가 신경 피로",
-                "🎛️ Vorta DSP: 부스트 0dB | FM 12%(2.5Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#388BFD",
+                "🚶 4. 일상 외출 자동 순항: 31.0 Hz 상복부 직타",
+                "2~4시간 외출 시 기저 둔통 유지 | AM 12% (1.80Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#60A5FA",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 17.5f, 19.8f, 900.0f,
-                                true, 0.12f, 2.5f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 1, false,
-                                "[최신정본 전술5] 17.50~19.80Hz 안구 스윕 [FM 12%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        // 파트 3: 하드웨어 정합 & 슬래브 관통 모드
-        addSectionHeaderInsideFrame(mFrameMainContainer, "3️⃣ [파트 3] 하드웨어 정합 & 슬래브 관통 모드 (최신정본 규격)", "#00E5FF");
-
-        addFullPresetButton(mFrameMainContainer,
-                "🎯 55.0 Hz 야간 요격 락온 [순수 사인파 0.00dBFS]",
-                "311호 55Hz 야간 공격 1:1 수직 상쇄 및 역제압 (211호 0dB 무음 스텔스)",
-                "🎛️ Vorta DSP: 부스트 0dB | 무변조 순수 사인파 | 트루피크 0.0dBFS | L=R 동위상",
-                "#39FF14",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 55.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[최신정본 기기정합1] 55.0Hz 야간 요격 락온 [순수 사인파]",
+                        startPreset(false, 31.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.12f, 1.80f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 행동-4] 일상외출 31.0Hz 상복부 직타 (AM 12%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "🔨 43.2 Hz 슬래브 관통 강타 [AM 70% @ 1.5Hz]",
-                "120mm 콘크리트 슬래브 코어를 1.5Hz 펄스 해머로 수직 관통 직타",
-                "🎛️ Vorta DSP: 부스트 +6dB | AM 70%(1.5Hz) | 아날로그 새추레이터 | 2차배음 ON",
-                "#FF5252",
+                "🏰 5. 초장기 외출 (48h+): 55.0 Hz 인터벌 락온",
+                "무인 요새화 | 30분 발진 / 15분 휴지 | FM 2.5% | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#818CF8",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 43.2f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 0.70f, 1.5f, false, 0.0f, 1.0f,
-                                6.0f, 1, 0, true,
-                                "[최신정본 기기정합2] 43.2Hz 슬래브 관통 강타 [AM 70%]",
+                        startPreset(false, 55.0f, 0f, 0f, 0f, 0f,
+                                true, 0.025f, 0.80f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[메인 행동-5] 초장기 48h+ 55.0Hz 인터벌 락온",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "💥 6. 상대 내성 파괴: 24.0 Hz ↔ 55.0 Hz 급변 도약",
+                "비선형 변조 도약으로 상대 신경 적응 무효화 | AM 20% | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +3dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#C084FC",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 55.0f, 24.0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.20f, 3.00f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 12,
+                                "[메인 행동-6] 상대 내성파괴 24↔55Hz 급변 (AM 20%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🧠 7. 상대 정신 집중 차단: 40.0 Hz 뇌파 공진 직타",
+                "재택/공부 방해, 인지 저하 유도 | RM 20% (10.00Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#A78BFA",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 40.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, false, 0f, 0f, true, 0.20f, 10.00f,
+                                0f, 0, 2, false, 11,
+                                "[메인 행동-7] 정신집중차단 40.0Hz 뇌파직타 (RM 20%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "💥 32.8 Hz 흉복부 내장 공진 [RM 45% @ 1.2Hz]",
-                "흉복부 내장 공진 대역 타격 | 링 변조 사이드밴드 분할로 호흡 답답함 유발",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 45%(1.2Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#E040FB",
+                "🛌 8. 수면 시간 집중 압박: 55.0 Hz 룸모드 락온",
+                "새벽 1~5시 수면 단계 파괴 | FM 3.0% (0.80Hz) | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#34D399",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 32.8f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.45f, 1.2f,
-                                3.0f, 1, 0, false,
-                                "[최신정본 기기정합3] 32.8Hz 흉복부 공진 [RM 45%]",
+                        startPreset(false, 55.0f, 0f, 0f, 0f, 0f,
+                                true, 0.030f, 0.80f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[메인 행동-8] 수면시간 집중압박 55.0Hz 락온 (FM 3%)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🛡️ 9. 3시간 이상 기기 보호: 43.2 Hz 보호 모드",
+                "보이스코일 발열 억제 운용 | AM 12% (1.50Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#2DD4BF",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 43.2f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.12f, 1.50f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 행동-9] 3시간+ 기기보호 43.2Hz (AM 12%)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        // [파트 3] 전술 요격 및 룸모드 특수 프리셋
+        addSectionHeaderInsideFrame(mFrameMainContainer, "3️⃣ [파트 3] 📊 전술 요격 및 룸모드 특수 프리셋", "#00F0FF");
+
+        addFullPresetButton(mFrameMainContainer,
+                "🔨 슬래브 120mm 1타 굽힘파: 43.2 Hz 단독 직타",
+                "원음 무변조 수직 관통 해머 | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +3dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#F59E0B",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 43.2f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, false, 0f, 0f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 12,
+                                "[메인 특수-1] 슬래브 120mm 굽힘파 43.2Hz 단독",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🎯 침실 1차 정상파 스텔스: 53.6 Hz 단독 직타",
+                "침실 고유 공진 초밀착 락온 | FM 2.0% (0.50Hz) | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#10B981",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 53.6f, 0f, 0f, 0f, 0f,
+                                true, 0.020f, 0.50f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[메인 특수-2] 침실 1차 정상파 53.6Hz 직타 (FM 2%)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameMainContainer,
+                "🌊 흉복부 중저역 스윕: 24.0 ~ 38.0 Hz (480초 스윕)",
+                "흉복부 내장 공진 광역 훑기 | AM 15% (2.20Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(true, 0f, 0f, 24.0f, 38.0f, 480.0f,
+                                false, 0f, 0f, true, 0.15f, 2.20f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 특수-3] 흉복부 24.0~38.0Hz 스윕 (AM 15%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameMainContainer,
-                "🌪️ 38.0 ~ 55.0 Hz 슬래브 융단 폭격 (60초) [FM 10% @ 2.0Hz]",
-                "천장 슬래브 고유 공진 모드를 60초마다 훑으며 회피 불능 융단 폭격",
-                "🎛️ Vorta DSP: 부스트 +3dB | FM 10%(2.0Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#FFA657",
+                "🌪️ 룸모드 고차 훑기: 40.0 ~ 55.0 Hz (300초 스윕)",
+                "천장 전 대역 고유 공진 순환 가진 | FM 4.0% (1.00Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#6366F1",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 38.0f, 55.0f, 60.0f,
-                                true, 0.10f, 2.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 1, false,
-                                "[최신정본 기기정합4] 38.0~55.0Hz 슬래브 융단 [FM 10%]",
+                        startPreset(true, 0f, 0f, 40.0f, 55.0f, 300.0f,
+                                true, 0.040f, 1.00f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[메인 특수-4] 룸모드 40.0~55.0Hz 스윕 (FM 4%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
-        root.addView(mFrameMainContainer);
+        contentPane.addView(mFrameMainContainer);
 
         // Divider between Main and Sub1
-        mSplitDivider1 = createSplitDivider("▼ 서브1 프레임 (보고서 2: 상황전술판) ▼", "#38D39F");
-        root.addView(mSplitDivider1);
+        mSplitDivider1 = createSplitDivider("▼ ⚡ 서브1 프레임 (통합운용 시나리오 버전2) ▼", "#10B981");
+        contentPane.addView(mSplitDivider1);
 
-        // =========================================================================
-        // 🚀 2. 서브1 프레임 컨테이너: 보고서 2 [실전 상황별 전술 매트릭스 & 기습 타격 매뉴얼 (상황전술)]
-        // =========================================================================
+        // -------------------------------------------------------------------------
+        // ⚡ [서브1 프레임] 통합운용 시나리오 버전2 (총 11개 프리셋)
+        // -------------------------------------------------------------------------
         mFrameSub1Container = createFrameContainer(
-                "🚀 [서브1 프레임] 실전 상황별 전술 매트릭스 & 기습 타격 매뉴얼 (상황전술)",
-                "보고서 2: 1~30Hz 즉각 제압 및 사용자 행동 패턴별 8대 실전 전투 프로토콜",
-                "#38D39F",
-                "#0D2218"
+                "⚡ [서브1 프레임] 통합운용 시나리오 버전2 (상황 전술)",
+                "하악골 골도 공진 + 2차 정상파 + 1Hz 맥놀이 충격파",
+                "#10B981",
+                "#064E3B"
         );
 
-        // 파트 1: 상대 도발/발망치 즉각 응징 (1~2초 킬러 콤보)
-        addSectionHeaderInsideFrame(mFrameSub1Container, "1️⃣ [파트 1] 상대 도발/발망치 즉각 응징 콤보 (상황전술)", "#38D39F");
+        // [파트 1] 24시간 4대 시간대별 마스터 스케줄 (v2)
+        addSectionHeaderInsideFrame(mFrameSub1Container, "1️⃣ [파트 1] 🌅 24시간 4대 시간대별 룸모드 직타 스케줄 (v2)", "#10B981");
 
         addFullPresetButton(mFrameSub1Container,
-                "🔨 7.00 Hz 장기 직접 타격 해머 [AM 100% @ 6.0Hz]",
-                "발망치 감지 즉시 1초에 6번씩 복부 장기 강타 | 1~2초 만에 구역질·식은땀 유발",
-                "🎛️ Vorta DSP: 부스트 +6dB | AM 100%(6.0Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#FF5252",
+                "🌅 1. 아침 (07:00~13:00 v2): 46.8 Hz 직타",
+                "하악골 골도 공진 수직 해머 직타 | AM 16% (2.40Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 +3dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#34D399",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 7.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 1.0f, 6.0f, false, 0.0f, 1.0f,
-                                6.0f, 1, 0, false,
-                                "[상황전술 응징1] 7.00Hz 장기 타격 해머 [AM 100%]",
+                        startPreset(false, 46.8f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.16f, 2.40f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 11,
+                                "[서브1 스케줄-1] 아침 46.8Hz 골도해머 (AM 16%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub1Container,
-                "👁️ 18.98 Hz 안구 공진 펄스 [AM 100% @ 2.0Hz]",
-                "10초 연속 타격 후 5초 완전 정지 반복 | 신경계 적응 원천 차단 고스트 펄스",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 100%(2.0Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#E040FB",
+                "☀️ 2. 오후 (13:00~19:00 v2): 51.5 Hz 직타",
+                "311호 룸모드 2차 정상파 공진 추적 | FM 4.0% (1.20Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#2DD4BF",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 18.98f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 1.0f, 2.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 0, false,
-                                "[상황전술 응징2] 18.98Hz 안구 공진 펄스 [AM 100%]",
+                        startPreset(false, 51.5f, 0f, 0f, 0f, 0f,
+                                true, 0.040f, 1.20f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브1 스케줄-2] 오후 51.5Hz 2차정상파 (FM 4%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub1Container,
-                "🧠 12.50 Hz 대뇌 피질 급습 [FM 15% @ 3.5Hz]",
-                "알파파(12Hz) 억제 + FM 3.5Hz 불규칙 주파수 지터로 극심한 두통 유발",
-                "🎛️ Vorta DSP: 부스트 +3dB | FM 15%(3.5Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#FFA657",
+                "🌆 3. 저녁 (19:00~01:00 v2): 54.0 Hz 직타",
+                "55Hz 인접 1.0Hz 맥놀이 충격파 직타 | RM 25% (1.00Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#FACC15",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 12.5f, 0f, 0f, 0f, 0f,
-                                true, 0.15f, 3.5f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 1, false,
-                                "[상황전술 응징3] 12.50Hz 대뇌 피질 급습 [FM 15%]",
+                        startPreset(false, 54.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, false, 0f, 0f, true, 0.25f, 1.00f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브1 스케줄-3] 저녁 54.0Hz 1Hz맥놀이 (RM 25%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub1Container,
+                "🌙 4. 취침 (01:00~07:00 v2): 36.5 ~ 44.5 Hz (600초 스윕)",
+                "흉골/갈비뼈 수직 미세 펄스 훑기 | AM 12% (1.50Hz) | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(true, 0f, 0f, 36.5f, 44.5f, 600.0f,
+                                false, 0f, 0f, true, 0.12f, 1.50f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[서브1 스케줄-4] 취침 36.5~44.5Hz 흉골스윕 (AM 12%)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        // [파트 2] 사용자 행동별 실전 맞춤 시나리오 (v2)
+        addSectionHeaderInsideFrame(mFrameSub1Container, "2️⃣ [파트 2] 🎯 사용자 행동별 실전 맞춤 시나리오 (v2)", "#10B981");
+
+        addFullPresetButton(mFrameSub1Container,
+                "⚡ 1. 상대 공격 즉각 반격 (v2): 54.0 Hz 직타",
+                "하향 충격파 동시 발진 | RM 25% + AM 15% | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#EF4444",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 54.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.15f, 2.00f, true, 0.25f, 1.00f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브1 행동-1] 즉각반격 54.0Hz 충격파 (RM+AM)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub1Container,
+                "🔨 2. 벌주기 (미로기관 파쇄): 46.8 Hz 두개골 직타",
+                "안구/두개골 공진 입체 파쇄 | FM 5.0% (2.00Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#F87171",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 46.8f, 0f, 0f, 0f, 0f,
+                                true, 0.050f, 2.00f, false, 0f, 0f, false, 0f, 0f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브1 행동-2] 벌주기 46.8Hz 두개골파쇄 (FM 5%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub1Container,
+                "🏢 3. 출근 12시간 무인방어 (v2): 36.5 Hz / 51.5 Hz 교대 (720초)",
+                "v2 독자 대역 순환 신경 피로 극대화 | AM 12% / FM 4% | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 51.5f, 36.5f, 0f, 0f, 0f,
+                                true, 0.040f, 1.20f, true, 0.12f, 1.50f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브1 행동-3] 출근 12h 36.5/51.5Hz 교대 (AM/FM)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub1Container,
-                "🎯 55.00 Hz 발망치 즉시 상쇄 [순수 사인파 0.00dBFS]",
-                "발망치 진동 에너지를 슬래브 공진점에서 1:1 수직 상쇄 압살",
-                "🎛️ Vorta DSP: 부스트 0dB | 무변조 순수 사인파 | 트루피크 0.0dBFS | L=R 동위상",
-                "#39FF14",
+                "💥 4. 상대 내성 완전파괴 (v2): 33.0 Hz ↔ 54.0 Hz 급변 도약",
+                "주파수 비선형 도약 예측 불허 타격 | AM 20% (3.50Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +3dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#C084FC",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 55.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[상황전술 응징4] 55.00Hz 발망치 상쇄 [순수 사인파]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        // 파트 2: 사용자 행동 패턴별 5대 운용 프로토콜 (상황전술)
-        addSectionHeaderInsideFrame(mFrameSub1Container, "2️⃣ [파트 2] 사용자 행동 패턴별 5대 운용 프로토콜 (상황전술)", "#38D39F");
-
-        addFullPresetButton(mFrameSub1Container,
-                "🏢 ① 출근 블록 (07:00~19:00 12h): 4.0~7.5Hz (3600s) [FM 변조]",
-                "12시간 무인 자동 가동 | 4.0~7.5Hz 초장기 스윕으로 상대 뇌압 상승·두통 누적",
-                "🎛️ Vorta DSP: 부스트 0dB | FM 10%(2.0Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#58A6FF",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 4.0f, 7.5f, 3600.0f,
-                                true, 0.10f, 2.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 1, false,
-                                "[상황전술 행동1] 출근 12h 4.0~7.5Hz [FM 10%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
+                        startPreset(false, 54.0f, 33.0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.20f, 3.50f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 12,
+                                "[서브1 행동-4] 내성완전파괴 33↔54Hz 급변 (AM 20%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
                     }
                 });
 
         addFullPresetButton(mFrameSub1Container,
-                "🚶 ② 일반 외출 (2~5시간): 12.0~24.5Hz (6580s) [RM 링변조]",
-                "비대칭 장기 루프로 예측 불가능한 복부 불쾌감 및 신경 피로 누적",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 30%(1.0Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#D2A8FF",
+                "🧠 5. 상대 정신 집중차단 (v2): 46.8 Hz 뇌파 공진 직타",
+                "골도 공진으로 두통 및 인지 마비 유도 | RM 20% (8.00Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#A78BFA",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 12.0f, 24.5f, 6580.0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.30f, 1.0f,
-                                3.0f, 0, 1, false,
-                                "[상황전술 행동2] 외출 2~5h 12.0~24.5Hz [RM 30%]",
+                        startPreset(false, 46.8f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, false, 0f, 0f, true, 0.20f, 8.00f,
+                                0f, 0, 2, false, 11,
+                                "[서브1 행동-5] 정신집중차단 46.8Hz 뇌파직타 (RM 20%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
+        // [파트 3] v2 고유 음향역학 변조 전술 프리셋
+        addSectionHeaderInsideFrame(mFrameSub1Container, "3️⃣ [파트 3] 📊 v2 고유 음향역학 변조 전술 프리셋", "#10B981");
+
         addFullPresetButton(mFrameSub1Container,
-                "🛏️ ③ 심야 수면 (23:00~07:00): 17.5~19.8Hz (6000s) [FM 변조]",
-                "211호 실내 0dB 무음 보장 & 윗집 렘수면 박탈 및 안구 공명 환각 유발",
-                "🎛️ Vorta DSP: 부스트 0dB | FM 12%(1.5Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#56D364",
+                "🦴 하악골 골도 공진 단독: 46.8 Hz 단독 직타",
+                "골도 공진 순수 타격 해머 | AM 16% (2.40Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 +3dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#10B981",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 17.5f, 19.8f, 6000.0f,
-                                true, 0.12f, 1.5f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[상황전술 행동3] 심야수면 17.5~19.8Hz [FM 12%]",
+                        startPreset(false, 46.8f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.16f, 2.40f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 11,
+                                "[서브1 특수-1] 하악골 골도공진 46.8Hz 단독 (AM 16%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub1Container,
-                "🚪 ④ 장기 부재 (48시간+): 2.0~5.0Hz (7200s) [AM 펄스]",
-                "이틀 이상 무인 초장기 가동 | 슬래브 공진 에너지가 공간 자체를 공포화",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 60%(1.0Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#79C0FF",
+                "🎯 2차 정상파 수직 관통: 51.5 Hz 단독 직타",
+                "침실 2차 정상파 수직 관통 락온 | FM 4.0% (1.20Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#14B8A6",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 2.0f, 5.0f, 7200.0f,
-                                false, 0.0f, 1.0f, true, 0.60f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 1, false,
-                                "[상황전술 행동4] 장기부재 48h+ 2.0~5.0Hz [AM 60%]",
+                        startPreset(false, 51.5f, 0f, 0f, 0f, 0f,
+                                true, 0.040f, 1.20f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브1 특수-2] 2차 정상파 51.5Hz 관통 (FM 4%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
-        addFullPresetButton(mFrameSub1Container,
-                "☕ ⑤ 주말 체류 (13:00~17:00): 7.83 Hz 슈만 공명 [FM 미세변조]",
-                "사용자 귀에는 완전 무음 스텔스, 윗집에만 불안·초조감 지속 형성",
-                "🎛️ Vorta DSP: 부스트 0dB | FM 6%(0.8Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#FFD700",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 7.83f, 0f, 0f, 0f, 0f,
-                                true, 0.06f, 0.8f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[상황전술 행동5] 주말체류 7.83Hz 슈만 [FM 6%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        // 파트 3: 상대 내성 파괴 3일 순환 공식 & 쿨링
-        addSectionHeaderInsideFrame(mFrameSub1Container, "3️⃣ [파트 3] 상대 내성 파괴 3일 순환 공식 & 쿨링 (상황전술)", "#38D39F");
-
-        addFullPresetButton(mFrameSub1Container,
-                "🔄 Day 1 (Combo B): 12.0~24.5Hz 스윕 [FM 12% @ 6.0Hz]",
-                "12~24.5Hz 점진적 신경 압박 | 주파수 고속 변조로 뇌파 적응 원천 차단",
-                "🎛️ Vorta DSP: 부스트 +3dB | FM 12%(6.0Hz) | 트루피크 0.0dBFS | L=-R 역위상",
-                "#388BFD",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 12.0f, 24.5f, 6580.0f,
-                                true, 0.12f, 6.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 1, false,
-                                "[상황전술 순환1] Day 1 Combo B 12.0~24.5Hz [FM 12%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub1Container,
-                "🔄 Day 2 (Combo A): 4.0~7.5Hz 스윕 [AM 80% / FM 10%]",
-                "복부 장기 및 안구 본격 타격 | 듀얼 변조로 신체 방어 기제 붕괴",
-                "🎛️ Vorta DSP: 부스트 +6dB | AM 80% + FM 10% | 아날로그 새추레이터 | L=R 동위상",
-                "#FF5252",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 4.0f, 7.5f, 440.0f,
-                                true, 0.10f, 5.0f, true, 0.80f, 1.5f, false, 0.0f, 1.0f,
-                                6.0f, 1, 0, false,
-                                "[상황전술 순환2] Day 2 Combo A 4.0~7.5Hz [AM+FM]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub1Container,
-                "🔄 Day 3 (Combo C): 2.0~5.0Hz 스윕 [AM 80% @ 1.2Hz]",
-                "초저역 심부 공명 극대화로 공황 상태 유도 | 3일 주기 완료 후 Combo B로 복귀",
-                "🎛️ Vorta DSP: 부스트 +6dB | AM 80%(1.2Hz) | 아날로그 새추레이터 | L=-R 역위상",
-                "#E040FB",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 2.0f, 5.0f, 1480.0f,
-                                false, 0.0f, 1.0f, true, 0.80f, 1.2f, false, 0.0f, 1.0f,
-                                6.0f, 1, 1, false,
-                                "[상황전술 순환3] Day 3 Combo C 2.0~5.0Hz [AM 80%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub1Container,
-                "❄️ 3시간+ 스피커 자동 쿨링 모드: 20.0~35.0Hz (1800s) [AM 70% 펄스]",
-                "AM 70% 주기적 감쇄로 보이스코일 공랭식 쿨링 강제 부여 | 24시간 연속 가동 안정성",
-                "🎛️ Vorta DSP: 부스트 0dB | AM 70%(1.0Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#00F0FF",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 20.0f, 35.0f, 1800.0f,
-                                false, 0.0f, 1.0f, true, 0.70f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[상황전술 쿨링] 3시간+ 스피커 쿨링 20.0~35.0Hz [AM 70%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        root.addView(mFrameSub1Container);
+        contentPane.addView(mFrameSub1Container);
 
         // Divider between Sub1 and Sub2
-        mSplitDivider2 = createSplitDivider("▼ 서브2 프레임 (보고서 3: 장기방어판) ▼", "#A371F7");
-        root.addView(mSplitDivider2);
+        mSplitDivider2 = createSplitDivider("▼ 🛡️ 서브2 프레임 (통합운용 시나리오 버전3) ▼", "#A855F7");
+        contentPane.addView(mSplitDivider2);
 
-        // =========================================================================
-        // 🛡️ 3. 서브2 프레임 컨테이너: 보고서 3 [24/7 무인 자동 방어 및 3대 기기 분산 협업 (장기방어)]
-        // =========================================================================
+        // -------------------------------------------------------------------------
+        // 🛡️ [서브2 프레임] 통합운용 시나리오 버전3 (총 10개 프리셋)
+        // -------------------------------------------------------------------------
         mFrameSub2Container = createFrameContainer(
-                "🛡️ [서브2 프레임] 24/7 무인 자동 방어 및 3대 기기 분산 협업 (장기방어)",
-                "보고서 3: 120mm 슬래브 공진 파쇄 음향학 & 24/7 무인 자동 복구 하드웨어 보존 체계",
-                "#A371F7",
-                "#1B122C"
+                "🛡️ [서브2 프레임] 통합운용 시나리오 버전3 (장기 방어)",
+                "슬래브 전단파 + 고차 굽힘파 + 1차 정상파 초정밀 락온",
+                "#A855F7",
+                "#3B0764"
         );
 
-        // 파트 1: 120mm 슬래브 공진 파쇄 음향학 (위상 조향)
-        addSectionHeaderInsideFrame(mFrameSub2Container, "1️⃣ [파트 1] 120mm 슬래브 공진 파쇄 음향학 (장기방어)", "#A371F7");
+        // [파트 1] 24시간 4대 시간대별 마스터 스케줄 (v3)
+        addSectionHeaderInsideFrame(mFrameSub2Container, "1️⃣ [파트 1] 🌅 24시간 4대 시간대별 룸모드 직타 스케줄 (v3)", "#A855F7");
 
         addFullPresetButton(mFrameSub2Container,
-                "🌊 S7 동위상(0°) 수직 굽힘파: 22.0 Hz [AM 60% @ 2.0Hz]",
-                "L = R 동위상 타격으로 슬래브 면 전체를 위아래로 진동시켜 바닥 꿀렁임 극대화",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 60%(2.0Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#58A6FF",
+                "🌅 1. 아침 (07:00~13:00 v3): 37.0 Hz 직타",
+                "슬래브 전단파 요동 수직 관통 | FM 5.0% (1.60Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#C084FC",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 22.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 0.60f, 2.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 0, false,
-                                "[장기방어 음향1] S7 동위상 굽힘파 22.0Hz [AM 60%]",
+                        startPreset(false, 37.0f, 0f, 0f, 0f, 0f,
+                                true, 0.050f, 1.60f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브2 스케줄-1] 아침 37.0Hz 전단파 직타 (FM 5%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub2Container,
-                "🌪️ S7 역위상(180°) 비틀림 전단파: 38.0~52.0 Hz (120s) [RM 45%]",
-                "L = -R 180° 역위상 타격으로 슬래브 면에 회전 전단 응력 인가 (진동 마디 이동)",
-                "🎛️ Vorta DSP: 부스트 +6dB | RM 45%(1.8Hz) | 아날로그 새추레이터 | L=-R 역위상",
-                "#FFA657",
+                "☀️ 2. 오후 (13:00~19:00 v3): 48.5 Hz 직타",
+                "슬래브 고차 굽힘파 기계 해머 직타 | AM 18% (3.10Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 +3dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#E879F9",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 38.0f, 52.0f, 120.0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.45f, 1.8f,
-                                6.0f, 1, 1, false,
-                                "[장기방어 음향2] S7 역위상 전단파 38.0~52.0Hz [RM 45%]",
+                        startPreset(false, 48.5f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.18f, 3.10f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 11,
+                                "[서브2 스케줄-2] 오후 48.5Hz 고차굽힘파 (AM 18%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub2Container,
+                "🌆 3. 저녁 (19:00~01:00 v3): 53.2 Hz 직타",
+                "311호 1차 정상파(53.6Hz) 초정밀 락온 | FM 3.0% (0.80Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#F472B6",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 53.2f, 0f, 0f, 0f, 0f,
+                                true, 0.030f, 0.80f, false, 0f, 0f, false, 0f, 0f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브2 스케줄-3] 저녁 53.2Hz 정상파 락온 (FM 3%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub2Container,
+                "🌙 4. 취침 (01:00~07:00 v3): 42.0 ~ 47.5 Hz (580초 스윕)",
+                "침대 프레임 골도 미세 펄스 훑기 | AM 10% (1.20Hz) | Vol 10",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(true, 0f, 0f, 42.0f, 47.5f, 580.0f,
+                                false, 0f, 0f, true, 0.10f, 1.20f, false, 0f, 0f,
+                                0f, 0, 2, false, 10,
+                                "[서브2 스케줄-4] 취침 42.0~47.5Hz 골도스윕 (AM 10%)",
+                                "LP-168S: SUB 3.0(9시) | X-OVER 65Hz | VOL 5.0");
+                    }
+                });
+
+        // [파트 2] 사용자 행동별 실전 맞춤 시나리오 (v3)
+        addSectionHeaderInsideFrame(mFrameSub2Container, "2️⃣ [파트 2] 🎯 사용자 행동별 실전 맞춤 시나리오 (v3)", "#A855F7");
+
+        addFullPresetButton(mFrameSub2Container,
+                "⚡ 1. 상대 공격 즉각 반격 (v3): 53.2 Hz 정상파 직타",
+                "침실 룸모드 즉각 현기증 유발 | FM 3.0% + AM 18% | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#EF4444",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 53.2f, 0f, 0f, 0f, 0f,
+                                true, 0.030f, 0.80f, true, 0.18f, 2.00f, false, 0f, 0f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브2 행동-1] 즉각반격 53.2Hz 정상파 직타 (FM+AM)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub2Container,
+                "🔨 2. 벌주기 (흉곽 슐만 파쇄): 37.0 Hz 슬래브 직타",
+                "슐만 2차 고조파 연동 흉곽/척추 집중 타격 | AM 18% (2.50Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +6dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#F87171",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 37.0f, 0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.18f, 2.50f, false, 0f, 0f,
+                                6.0f, 1, 2, false, 12,
+                                "[서브2 행동-2] 벌주기 37.0Hz 흉곽슐만파쇄 (AM 18%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        addFullPresetButton(mFrameSub2Container,
+                "🏢 3. 출근 12시간 무인방어 (v3): 37.0 Hz / 53.2 Hz 교대 (600초)",
+                "3주차 고유 주파수 및 3기기 변조 조화 | FM 5% / FM 3% | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#38BDF8",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 53.2f, 37.0f, 0f, 0f, 0f,
+                                true, 0.050f, 1.60f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브2 행동-3] 출근 12h 37.0/53.2Hz 교대 (FM)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub2Container,
-                "🧱 상하 압착 건축 구조체 직결: 18.98 Hz [AM 70% @ 1.5Hz]",
-                "하부 바닥 우퍼 + 상부 천장 트랜스2 상하 압착으로 공기 전파음 0% 건축물 골조 결속",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 70%(1.5Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#FF5252",
+                "💥 4. 상대 내성 완전파괴 (v3): 37.0 Hz ↔ 53.2 Hz 급변",
+                "광대역 카오스 도약 복합 조화 | AM 20% (3.20Hz) | Vol 12",
+                "🎛️ Vorta DSP: 부스트 +3dB | 아날로그 소프트 새추레이터 | BTL 모노",
+                "#C084FC",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(false, 18.98f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 0.70f, 1.5f, false, 0.0f, 1.0f,
-                                3.0f, 0, 0, false,
-                                "[장기방어 음향3] 상하 압착 결속 18.98Hz [AM 70%]",
+                        startPreset(false, 53.2f, 37.0f, 0f, 0f, 0f,
+                                false, 0f, 0f, true, 0.20f, 3.20f, false, 0f, 0f,
+                                3.0f, 1, 2, false, 12,
+                                "[서브2 행동-4] 내성완전파괴 37↔53.2Hz 급변 (AM 20%)",
+                                "LP-168S: SUB 4.0(10시) | X-OVER 85Hz | VOL 6.0");
+                    }
+                });
+
+        // [파트 3] v3 고유 전단파/정상파 특수 프리셋
+        addSectionHeaderInsideFrame(mFrameSub2Container, "3️⃣ [파트 3] 📊 v3 고유 전단파/정상파 특수 프리셋", "#A855F7");
+
+        addFullPresetButton(mFrameSub2Container,
+                "🌊 슬래브 전단파 수직 관통: 37.0 Hz 단독 직타",
+                "전단파 요동 단독 관통 | FM 5.0% (1.60Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#A855F7",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        startPreset(false, 37.0f, 0f, 0f, 0f, 0f,
+                                true, 0.050f, 1.60f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브2 특수-1] 슬래브 전단파 37.0Hz 단독 (FM 5%)",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
         addFullPresetButton(mFrameSub2Container,
-                "🔄 정재파 마디 무력화 위상 조향: 30.0~45.0 Hz (600s) [위상 전환]",
-                "10분 주기 광역 스윕으로 윗집 바닥의 진동 마디(안전지대)를 강제 제거",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 40%(1.5Hz) | 아날로그 새추레이터 | L=-R 역위상",
-                "#388BFD",
+                "🎯 침실 1차 정상파 초정밀 락온: 53.2 Hz 단독 직타",
+                "침실 룸모드 피크 극점 단독 직타 | FM 3.0% (0.80Hz) | Vol 11",
+                "🎛️ Vorta DSP: 부스트 0dB | 트루피크 -1.5dBFS | BTL 모노",
+                "#EC4899",
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 30.0f, 45.0f, 600.0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.40f, 1.5f,
-                                3.0f, 1, 1, false,
-                                "[장기방어 음향4] 위상조향 스윕 30.0~45.0Hz [RM 40%]",
+                        startPreset(false, 53.2f, 0f, 0f, 0f, 0f,
+                                true, 0.030f, 0.80f, false, 0f, 0f, false, 0f, 0f,
+                                0f, 0, 2, false, 11,
+                                "[서브2 특수-2] 1차 정상파 53.2Hz 초정밀 락온",
                                 "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
                     }
                 });
 
-        // 파트 2: 24/7 무인 자동 복구 및 노이즈 방지 모드 (장기방어)
-        addSectionHeaderInsideFrame(mFrameSub2Container, "2️⃣ [파트 2] 24/7 무인 자동 복구 및 노이즈 방지 모드 (장기방어)", "#A371F7");
+        contentPane.addView(mFrameSub2Container);
 
-        addFullPresetButton(mFrameSub2Container,
-                "🛡️ S7 24/7 상시 방어선: 55.0 Hz 단독 요격 [순수 사인파]",
-                "311호 내장진동 상시 차단 방어선 | 211호 0dB 무음 유지",
-                "🎛️ Vorta DSP: 부스트 0dB | 무변조 순수 사인파 | 트루피크 0.0dBFS | L=R 동위상",
-                "#39FF14",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 55.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[장기방어 복구1] 24/7 상시방어 55.0Hz [순수 사인파]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "🎚️ 노이즈 0% 자유 볼륨 모드: 폰 볼륨 10~12단계 권장",
-                "앰프 입력단 포화(클리핑 잡음) 원천 방지 | 순수한 물리 진동만 슬래브로 전달",
-                "🎛️ Vorta DSP: 부스트 0dB (원음) | 트루피크 0.0dBFS 리미터 | L=R 동위상",
-                "#56D364",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 55.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[장기방어 복구2] 노이즈 0% 권장 볼륨 가이드 모드",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "🔋 Doze 모드 배제 상시 가동: 15.0~28.0 Hz (90s) [RM 변조]",
-                "절전 모드에 의한 발진 중단 차단 | 링 변조 사이드밴드 연속 발진",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 40%(2.0Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#FFD700",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 15.0f, 28.0f, 90.0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.40f, 2.0f,
-                                3.0f, 0, 0, false,
-                                "[장기방어 복구3] Doze 배제 상시가동 15.0~28.0Hz [RM 40%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "🔇 야간 0dB 스텔스 차단벽: 18.98 Hz [FM 5% 미세지터]",
-                "비가청 스텔스 방어막 + 미세 지터로 청각 적응 완전 무력화",
-                "🎛️ Vorta DSP: 부스트 0dB | FM 5%(0.5Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#E040FB",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 18.98f, 0f, 0f, 0f, 0f,
-                                true, 0.05f, 0.5f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                0.0f, 0, 0, false,
-                                "[장기방어 복구4] 야간 스텔스 차단 18.98Hz [FM 5%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        // 파트 3: 스피커 수명 보존 공학 & 3대 기기 결선 가이드 (장기방어)
-        addSectionHeaderInsideFrame(mFrameSub2Container, "3️⃣ [파트 3] 스피커 수명 보존 공학 & 하드웨어 보존 (장기방어)", "#A371F7");
-
-        addFullPresetButton(mFrameSub2Container,
-                "❄️ 코일 과열 방지 AM 공랭 펄싱: 43.2 Hz [AM 75% @ 1.2Hz]",
-                "AM 75% 진폭 펄스로 보이스코일 벤트 홀 공랭식 냉각 주기 부여 (코일 온도 50℃ 이하 유지)",
-                "🎛️ Vorta DSP: 부스트 +3dB | AM 75%(1.2Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#FF5252",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 43.2f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, true, 0.75f, 1.2f, false, 0.0f, 1.0f,
-                                3.0f, 1, 0, false,
-                                "[장기방어 보존1] 코일 공랭 펄싱 43.2Hz [AM 75%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "🛡️ Xmax 제어 리미터 급습: 50.0 ~ 55.0 Hz (15초) [FM 10%]",
-                "콘 찢어짐(Cone Tear) 방지 리미터 적용 + 15초 쾌속 왕복 급습",
-                "🎛️ Vorta DSP: 부스트 +3dB | FM 10%(2.5Hz) | 트루피크 0.0dBFS | L=R 동위상",
-                "#FFA657",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(true, 0f, 0f, 50.0f, 55.0f, 15.0f,
-                                true, 0.10f, 2.5f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 0, 0, false,
-                                "[장기방어 보존2] Xmax 제어 50.0~55.0Hz [FM 10%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "⚡ 저음 부스트 +3dB 펀치 드라이브: 32.8 Hz [RM 40% @ 1.2Hz]",
-                "리미터 보호 하에 안전한 +3dB 서브베이스 드라이브 인가",
-                "🎛️ Vorta DSP: 부스트 +3dB | RM 40%(1.2Hz) | 아날로그 새추레이터 | L=R 동위상",
-                "#E040FB",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 32.8f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, true, 0.40f, 1.2f,
-                                3.0f, 1, 0, false,
-                                "[장기방어 보존3] 저음 부스트 +3dB 32.8Hz [RM 40%]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        addFullPresetButton(mFrameSub2Container,
-                "🔗 2차 고조파 슬래브 결합 익사이터: 22.0 Hz [2차 배음 ON]",
-                "1차 기본파(22Hz)와 2차 고조파(44Hz)를 위상 정합 결합하여 슬래브 음향 결합 극대화",
-                "🎛️ Vorta DSP: 부스트 +3dB | 2차 배음 ON | 아날로그 새추레이터 | L=R 동위상",
-                "#00E5FF",
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        startPresetWithDsp(false, 22.0f, 0f, 0f, 0f, 0f,
-                                false, 0.0f, 1.0f, false, 0.0f, 1.0f, false, 0.0f, 1.0f,
-                                3.0f, 1, 0, true,
-                                "[장기방어 보존4] 2차 배음 결합 22.0Hz [배음 ON]",
-                                "LP-168S: SUB 3.5(9시반) | X-OVER 65~85Hz | VOL 5.5");
-                    }
-                });
-
-        root.addView(mFrameSub2Container);
-
-        // =========================================================================
-        // 🎛️ Vorta DSP 고급 튜너
-        // =========================================================================
-        addSectionHeader(root, "🎛️ Vorta DSP 고급 튜너 (하드웨어 오디오 가속)");
-
-        LinearLayout dspCard = new LinearLayout(this);
-        dspCard.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable dspBg = new GradientDrawable();
-        dspBg.setColor(Color.parseColor("#161B22"));
-        dspBg.setCornerRadius(10 * density);
-        dspBg.setStroke((int)(1 * density), Color.parseColor("#30363D"));
-        dspCard.setBackground(dspBg);
-        dspCard.setPadding((int)(16 * density), (int)(14 * density), (int)(16 * density), (int)(14 * density));
-        LinearLayout.LayoutParams dspLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        dspLp.setMargins(0, 0, 0, (int)(14 * density));
-        dspCard.setLayoutParams(dspLp);
-
-        addDspSubLabel(dspCard, "1. 프리셋 연동 자동 DSP 매칭 (Auto-Preset DSP Lock):");
-        LinearLayout autoRow = new LinearLayout(this);
-        autoRow.setOrientation(LinearLayout.HORIZONTAL);
-        mAutoLockButtons[0] = createDspTabButton(autoRow, "자동 매칭 ON (권장)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sAutoPresetDsp = true;
-                notifyDspChanged("프리셋 자동 DSP 매칭 활성화");
-            }
-        });
-        mAutoLockButtons[1] = createDspTabButton(autoRow, "수동 오버라이드", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sAutoPresetDsp = false;
-                notifyDspChanged("DSP 수동 고정 모드 전환");
-            }
-        });
-        dspCard.addView(autoRow);
-
-        addDspSubLabel(dspCard, "2. 저음 드라이브 게인 (Sub-Bass Drive Boost):");
-        LinearLayout boostRow = new LinearLayout(this);
-        boostRow.setOrientation(LinearLayout.HORIZONTAL);
-        mBoostButtons[0] = createDspTabButton(boostRow, "0dB (원음)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setBassBoost(0.0f);
-            }
-        });
-        mBoostButtons[1] = createDspTabButton(boostRow, "+3dB (펀치)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setBassBoost(3.0f);
-            }
-        });
-        mBoostButtons[2] = createDspTabButton(boostRow, "+6dB (초강력)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setBassBoost(6.0f);
-            }
-        });
-        dspCard.addView(boostRow);
-
-        addDspSubLabel(dspCard, "3. 피크 보호 리미터 모드 (Peak Limiter Mode):");
-        LinearLayout limiterRow = new LinearLayout(this);
-        limiterRow.setOrientation(LinearLayout.HORIZONTAL);
-        mLimiterButtons[0] = createDspTabButton(limiterRow, "트루피크 0.0dBFS", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sLimiterMode = 0;
-                notifyDspChanged("트루피크 0.0dBFS 리미터 적용");
-            }
-        });
-        mLimiterButtons[1] = createDspTabButton(limiterRow, "아날로그 새추레이터", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sLimiterMode = 1;
-                notifyDspChanged("아날로그 소프트 새추레이터 적용");
-            }
-        });
-        dspCard.addView(limiterRow);
-
-        addDspSubLabel(dspCard, "4. 2기 우퍼 스테레오 위상 매트릭스 (Phase Matrix):");
-        LinearLayout chRow = new LinearLayout(this);
-        chRow.setOrientation(LinearLayout.HORIZONTAL);
-        mChannelButtons[0] = createDspTabButton(chRow, "L=R 동위상 (압축파)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sChannelMode = 0;
-                notifyDspChanged("L=R 동위상 (슬래브 수직 압축 타격)");
-            }
-        });
-        mChannelButtons[1] = createDspTabButton(chRow, "L=-R 역위상 (전단파)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sChannelMode = 1;
-                notifyDspChanged("L=-R 180° 역위상 (슬래브 횡전단 타격)");
-            }
-        });
-        mChannelButtons[2] = createDspTabButton(chRow, "L 단독(우퍼1)", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sChannelMode = 2;
-                notifyDspChanged("L 채널 우퍼 1기 단독 출력");
-            }
-        });
-        dspCard.addView(chRow);
-
-        addDspSubLabel(dspCard, "5. 2차 고조파 결합 익사이터 (2nd Harmonic Exciter):");
-        LinearLayout exciterRow = new LinearLayout(this);
-        exciterRow.setOrientation(LinearLayout.HORIZONTAL);
-        mExciterButtons[0] = createDspTabButton(exciterRow, "배음 활성 ON", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sHarmonicExciter = true;
-                notifyDspChanged("2차 배음 결합 익사이터 활성화");
-            }
-        });
-        mExciterButtons[1] = createDspTabButton(exciterRow, "배음 비활성 OFF", 1.0f, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                S6AudioGeneratorService.sHarmonicExciter = false;
-                notifyDspChanged("순수 단일 주파수 전송");
-            }
-        });
-        dspCard.addView(exciterRow);
-
-        root.addView(dspCard);
-
-        // Emergency STOP
-        LinearLayout stopCard = new LinearLayout(this);
-        stopCard.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable stopBg = new GradientDrawable();
-        stopBg.setColor(Color.parseColor("#381014"));
-        stopBg.setCornerRadius(10 * density);
-        stopBg.setStroke((int)(1.5f * density), Color.parseColor("#DA3633"));
-        stopCard.setBackground(stopBg);
-        stopCard.setPadding((int)(16 * density), (int)(16 * density), (int)(16 * density), (int)(16 * density));
-        stopCard.setClickable(true);
-        stopCard.setFocusable(true);
-        stopCard.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                stopFrequencyService();
-            }
-        });
-
-        TextView stopTitle = new TextView(this);
-        stopTitle.setText("■ 주파수 발생 즉시 정지 (STOP / 음소거)");
-        stopTitle.setTextSize(16);
-        stopTitle.setTextColor(Color.parseColor("#FF5252"));
-        stopTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        stopCard.addView(stopTitle);
-
-        TextView stopDesc = new TextView(this);
-        stopDesc.setText("AudioTrack 출력 및 백그라운드 발진 완전 종료");
-        stopDesc.setTextSize(12);
-        stopDesc.setTextColor(Color.parseColor("#FFFFFF"));
-        stopDesc.setTypeface(Typeface.DEFAULT_BOLD);
-        stopDesc.setPadding(0, (int)(4 * density), 0, (int)(2 * density));
-        stopCard.addView(stopDesc);
-
-        TextView stopSub = new TextView(this);
-        stopSub.setText("출력 대기 상태 전환 (저장된 Vorta DSP 설정은 영구 보존됨)");
-        stopSub.setTextSize(11);
-        stopSub.setTextColor(Color.parseColor("#FF7B72"));
-        stopSub.setTypeface(Typeface.DEFAULT_BOLD);
-        stopCard.addView(stopSub);
-
-        root.addView(stopCard);
-
-        scroll.addView(root);
+        scroll.addView(contentPane);
         setContentView(scroll);
-
-        switchSplitView(0); // Default: All frames visible
-        refreshDspButtonsUi();
+        switchSplitView(0); // Default: 전체
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         mUiHandler.post(mTelemetryUpdater);
-        refreshDspButtonsUi();
-        S6VolumeHelper.ensureTargetVolumeIfNeeded(this, true);
     }
 
     @Override
@@ -1086,470 +913,336 @@ public class MainActivity extends Activity {
         mUiHandler.removeCallbacks(mTelemetryUpdater);
     }
 
-    private void switchSplitView(int mode) {
-        mCurrentSplitMode = mode;
-        if (mode == 0) {
-            // All 3 frames visible
-            mFrameMainContainer.setVisibility(View.VISIBLE);
-            mFrameSub1Container.setVisibility(View.VISIBLE);
-            mFrameSub2Container.setVisibility(View.VISIBLE);
-            mSplitDivider1.setVisibility(View.VISIBLE);
-            mSplitDivider2.setVisibility(View.VISIBLE);
-        } else if (mode == 1) {
-            // Main frame only
-            mFrameMainContainer.setVisibility(View.VISIBLE);
-            mFrameSub1Container.setVisibility(View.GONE);
-            mFrameSub2Container.setVisibility(View.GONE);
-            mSplitDivider1.setVisibility(View.GONE);
-            mSplitDivider2.setVisibility(View.GONE);
-        } else if (mode == 2) {
-            // Sub1 frame only
-            mFrameMainContainer.setVisibility(View.GONE);
-            mFrameSub1Container.setVisibility(View.VISIBLE);
-            mFrameSub2Container.setVisibility(View.GONE);
-            mSplitDivider1.setVisibility(View.GONE);
-            mSplitDivider2.setVisibility(View.GONE);
-        } else if (mode == 3) {
-            // Sub2 frame only
-            mFrameMainContainer.setVisibility(View.GONE);
-            mFrameSub1Container.setVisibility(View.GONE);
-            mFrameSub2Container.setVisibility(View.VISIBLE);
-            mSplitDivider1.setVisibility(View.GONE);
-            mSplitDivider2.setVisibility(View.GONE);
-        }
-
-        // Update tab buttons appearance
+    // =========================================================================
+    // 🎛️ Split View Switching Logic: Exactly [전체 / 메인 / 서브1 / 서브2]
+    // =========================================================================
+    private void switchSplitView(int modeIndex) {
+        mCurrentSplitMode = modeIndex;
         float density = getResources().getDisplayMetrics().density;
+
         for (int i = 0; i < 4; i++) {
-            if (mSplitViewButtons[i] == null) continue;
-            GradientDrawable gd = new GradientDrawable();
-            gd.setCornerRadius(8 * density);
-            if (i == mode) {
-                gd.setColor(Color.parseColor("#00F0FF"));
-                gd.setStroke((int)(1.5f * density), Color.parseColor("#FFFFFF"));
-                mSplitViewButtons[i].setBackground(gd);
-                mSplitViewButtons[i].setTextColor(Color.parseColor("#0A0E17"));
+            GradientDrawable tabBg = new GradientDrawable();
+            if (i == modeIndex) {
+                tabBg.setColor(Color.parseColor("#0284C7")); // Active Sky Blue
+                tabBg.setCornerRadius(6 * density);
+                mSplitViewButtons[i].setTextColor(Color.parseColor("#FFFFFF"));
                 mSplitViewButtons[i].setTypeface(Typeface.DEFAULT_BOLD);
             } else {
-                gd.setColor(Color.parseColor("#21262D"));
-                gd.setStroke((int)(1.2f * density), Color.parseColor("#484F58"));
-                mSplitViewButtons[i].setBackground(gd);
-                mSplitViewButtons[i].setTextColor(Color.parseColor("#E6EDF3"));
-                mSplitViewButtons[i].setTypeface(Typeface.DEFAULT_BOLD);
+                tabBg.setColor(Color.parseColor("#1E293B")); // Inactive Slate
+                tabBg.setCornerRadius(6 * density);
+                mSplitViewButtons[i].setTextColor(Color.parseColor("#94A3B8"));
+                mSplitViewButtons[i].setTypeface(Typeface.DEFAULT);
             }
+            mSplitViewButtons[i].setBackground(tabBg);
+        }
+
+        if (modeIndex == 0) { // 전체
+            mFrameMainContainer.setVisibility(View.VISIBLE);
+            mSplitDivider1.setVisibility(View.VISIBLE);
+            mFrameSub1Container.setVisibility(View.VISIBLE);
+            mSplitDivider2.setVisibility(View.VISIBLE);
+            mFrameSub2Container.setVisibility(View.VISIBLE);
+        } else if (modeIndex == 1) { // 메인
+            mFrameMainContainer.setVisibility(View.VISIBLE);
+            mSplitDivider1.setVisibility(View.GONE);
+            mFrameSub1Container.setVisibility(View.GONE);
+            mSplitDivider2.setVisibility(View.GONE);
+            mFrameSub2Container.setVisibility(View.GONE);
+        } else if (modeIndex == 2) { // 서브1
+            mFrameMainContainer.setVisibility(View.GONE);
+            mSplitDivider1.setVisibility(View.GONE);
+            mFrameSub1Container.setVisibility(View.VISIBLE);
+            mSplitDivider2.setVisibility(View.GONE);
+            mFrameSub2Container.setVisibility(View.GONE);
+        } else if (modeIndex == 3) { // 서브2
+            mFrameMainContainer.setVisibility(View.GONE);
+            mSplitDivider1.setVisibility(View.GONE);
+            mFrameSub1Container.setVisibility(View.GONE);
+            mSplitDivider2.setVisibility(View.GONE);
+            mFrameSub2Container.setVisibility(View.VISIBLE);
         }
     }
 
-    private TextView createSplitTabButton(LinearLayout row, String text, float weight, View.OnClickListener listener) {
+    private TextView createSplitTabButton(LinearLayout parent, String text, float weight, View.OnClickListener listener) {
         float density = getResources().getDisplayMetrics().density;
         TextView btn = new TextView(this);
         btn.setText(text);
         btn.setTextSize(13);
-        btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setTextColor(Color.parseColor("#E6EDF3"));
         btn.setGravity(Gravity.CENTER);
         btn.setSingleLine(true);
-        btn.setIncludeFontPadding(false);
-        btn.setPadding((int)(3 * density), 0, (int)(3 * density), 0);
-        btn.setClickable(true);
-        btn.setFocusable(true);
-        btn.setOnClickListener(listener);
-
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(Color.parseColor("#21262D"));
-        gd.setCornerRadius(8 * density);
-        gd.setStroke((int)(1 * density), Color.parseColor("#30363D"));
-        btn.setBackground(gd);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, (int)(44 * density), weight);
-        lp.setMargins((int)(2.5f * density), 0, (int)(2.5f * density), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight);
+        lp.setMargins((int)(2 * density), 0, (int)(2 * density), 0);
         btn.setLayoutParams(lp);
-
-        row.addView(btn);
+        btn.setOnClickListener(listener);
+        parent.addView(btn);
         return btn;
     }
 
-    private LinearLayout createSplitDivider(String text, String colorHex) {
-        LinearLayout divider = new LinearLayout(this);
-        divider.setOrientation(LinearLayout.HORIZONTAL);
-        divider.setGravity(Gravity.CENTER);
-        divider.setPadding(0, 16, 0, 16);
-
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextSize(11);
-        label.setTextColor(Color.parseColor(colorHex));
-        label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setBackgroundColor(Color.parseColor("#161B22"));
-        label.setPadding(16, 6, 16, 6);
-
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(Color.parseColor("#161B22"));
-        gd.setCornerRadius(10 * getResources().getDisplayMetrics().density);
-        gd.setStroke((int)(1 * getResources().getDisplayMetrics().density), Color.parseColor(colorHex));
-        label.setBackground(gd);
-
-        divider.addView(label);
-        return divider;
-    }
-
-    private LinearLayout createFrameContainer(String titleText, String subtitleText, String borderColorHex, String bgColorHex) {
+    private LinearLayout createFrameContainer(String title, String desc, String accentColor, String cardBgColor) {
+        float density = getResources().getDisplayMetrics().density;
         LinearLayout frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
 
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(Color.parseColor(bgColorHex));
-        gd.setCornerRadius(14 * getResources().getDisplayMetrics().density);
-        gd.setStroke((int)(2 * getResources().getDisplayMetrics().density), Color.parseColor(borderColorHex));
-        frame.setBackground(gd);
-        frame.setPadding(
-                (int)(14 * getResources().getDisplayMetrics().density),
-                (int)(14 * getResources().getDisplayMetrics().density),
-                (int)(14 * getResources().getDisplayMetrics().density),
-                (int)(14 * getResources().getDisplayMetrics().density)
-        );
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#0F172A"));
+        bg.setCornerRadius(10 * density);
+        bg.setStroke((int)(1.5f * density), Color.parseColor(accentColor));
+        frame.setBackground(bg);
+        frame.setPadding((int)(14 * density), (int)(12 * density), (int)(14 * density), (int)(14 * density));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, 0, 0, (int)(16 * getResources().getDisplayMetrics().density));
+        lp.setMargins(0, 0, 0, (int)(16 * density));
         frame.setLayoutParams(lp);
 
         TextView tvTitle = new TextView(this);
-        tvTitle.setText(titleText);
-        tvTitle.setTextSize(15);
-        tvTitle.setTextColor(Color.parseColor(borderColorHex));
+        tvTitle.setText(title);
+        tvTitle.setTextSize(16);
+        tvTitle.setTextColor(Color.parseColor(accentColor));
         tvTitle.setTypeface(Typeface.DEFAULT_BOLD);
         frame.addView(tvTitle);
 
-        TextView tvSub = new TextView(this);
-        tvSub.setText(subtitleText);
-        tvSub.setTextSize(11);
-        tvSub.setTextColor(Color.parseColor("#E6EDF3"));
-        tvSub.setPadding(0, 4, 0, 12);
-        frame.addView(tvSub);
+        TextView tvDesc = new TextView(this);
+        tvDesc.setText(desc);
+        tvDesc.setTextSize(11);
+        tvDesc.setTextColor(Color.parseColor("#CBD5E1"));
+        tvDesc.setPadding(0, (int)(2 * density), 0, (int)(10 * density));
+        frame.addView(tvDesc);
 
         return frame;
     }
 
-    private void addSectionHeaderInsideFrame(LinearLayout frame, String title, String colorHex) {
-        TextView tv = new TextView(this);
-        tv.setText(title);
-        tv.setTextSize(13);
-        tv.setTextColor(Color.parseColor(colorHex));
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setPadding(4, 12, 4, 8);
-        frame.addView(tv);
+    private void addSectionHeaderInsideFrame(LinearLayout frame, String sectionTitle, String color) {
+        float density = getResources().getDisplayMetrics().density;
+        TextView header = new TextView(this);
+        header.setText(sectionTitle);
+        header.setTextSize(13);
+        header.setTextColor(Color.parseColor(color));
+        header.setTypeface(Typeface.DEFAULT_BOLD);
+        header.setPadding(0, (int)(10 * density), 0, (int)(6 * density));
+        frame.addView(header);
     }
 
-    private void addSectionHeader(LinearLayout parent, String title) {
-        TextView tv = new TextView(this);
-        tv.setText(title);
-        tv.setTextSize(14);
-        tv.setTextColor(Color.parseColor("#00F0FF"));
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setPadding(0, 16, 0, 8);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tv.setLayoutParams(lp);
-        parent.addView(tv);
-    }
+    private LinearLayout createSplitDivider(String text, String color) {
+        float density = getResources().getDisplayMetrics().density;
+        LinearLayout divider = new LinearLayout(this);
+        divider.setOrientation(LinearLayout.VERTICAL);
+        divider.setGravity(Gravity.CENTER);
+        divider.setPadding(0, (int)(4 * density), 0, (int)(12 * density));
 
-    private void addDspSubLabel(LinearLayout parent, String text) {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(12);
-        tv.setTextColor(Color.parseColor("#FFFFFF"));
+        tv.setTextColor(Color.parseColor(color));
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setPadding(2, 10, 2, 5);
-        parent.addView(tv);
+        divider.addView(tv);
+
+        return divider;
     }
 
-    private TextView createDspTabButton(LinearLayout row, String text, float weight, View.OnClickListener listener) {
-        TextView btn = new TextView(this);
-        btn.setText(text);
-        btn.setTextSize(12);
-        btn.setTextColor(Color.parseColor("#FFFFFF"));
-        btn.setBackgroundColor(Color.parseColor("#21262D"));
-        btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setGravity(Gravity.CENTER);
-        btn.setPadding(8, 14, 8, 14);
-        btn.setClickable(true);
-        btn.setFocusable(true);
-        btn.setOnClickListener(listener);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight);
-        lp.setMargins(4, 0, 4, 6);
-        btn.setLayoutParams(lp);
-
-        row.addView(btn);
-        return btn;
-    }
-
-    private void refreshDspButtonsUi() {
-        boolean curAuto = S6AudioGeneratorService.sAutoPresetDsp;
-        for (int i = 0; i < mAutoLockButtons.length; i++) {
-            if (mAutoLockButtons[i] == null) continue;
-            boolean active = (curAuto == mAutoLockValues[i]);
-            mAutoLockButtons[i].setBackgroundColor(Color.parseColor(active ? (curAuto ? "#56D364" : "#DA3633") : "#21262D"));
-            mAutoLockButtons[i].setTextColor(Color.parseColor(active ? "#FFFFFF" : "#E6EDF3"));
-            mAutoLockButtons[i].setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        }
-
-        float curBoost = S6AudioGeneratorService.sBassBoostDb;
-        for (int i = 0; i < mBoostButtons.length; i++) {
-            if (mBoostButtons[i] == null) continue;
-            boolean active = Math.abs(curBoost - mBoostValues[i]) < 0.1f;
-            mBoostButtons[i].setBackgroundColor(Color.parseColor(active ? "#58A6FF" : "#21262D"));
-            mBoostButtons[i].setTextColor(Color.parseColor(active ? "#FFFFFF" : "#E6EDF3"));
-            mBoostButtons[i].setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        }
-
-        int curLimiter = S6AudioGeneratorService.sLimiterMode;
-        for (int i = 0; i < mLimiterButtons.length; i++) {
-            if (mLimiterButtons[i] == null) continue;
-            boolean active = (curLimiter == i);
-            mLimiterButtons[i].setBackgroundColor(Color.parseColor(active ? "#58A6FF" : "#21262D"));
-            mLimiterButtons[i].setTextColor(Color.parseColor(active ? "#FFFFFF" : "#E6EDF3"));
-            mLimiterButtons[i].setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        }
-
-        int curChannel = S6AudioGeneratorService.sChannelMode;
-        for (int i = 0; i < 3; i++) {
-            if (mChannelButtons[i] == null) continue;
-            boolean active = (curChannel == i);
-            mChannelButtons[i].setBackgroundColor(Color.parseColor(active ? "#D2A8FF" : "#21262D"));
-            mChannelButtons[i].setTextColor(Color.parseColor(active ? "#FFFFFF" : "#E6EDF3"));
-            mChannelButtons[i].setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        }
-
-        boolean curExciter = S6AudioGeneratorService.sHarmonicExciter;
-        for (int i = 0; i < mExciterButtons.length; i++) {
-            if (mExciterButtons[i] == null) continue;
-            boolean active = (curExciter == (i == 0));
-            mExciterButtons[i].setBackgroundColor(Color.parseColor(active ? "#FFD700" : "#21262D"));
-            mExciterButtons[i].setTextColor(Color.parseColor(active ? "#FFFFFF" : "#E6EDF3"));
-            mExciterButtons[i].setTypeface(active ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        }
-
-        if (mStatusDsp != null) {
-            mStatusDsp.setText("Vorta DSP: " + S6AudioGeneratorService.buildVortaDspSummary());
-        }
-    }
-
-    private void notifyDspChanged(String toastMsg) {
-        S6AudioGeneratorService.saveConfig(this);
-        refreshDspButtonsUi();
-
-        Intent svc = new Intent(this, S6AudioGeneratorService.class);
-        svc.putExtra("auto_preset_dsp", S6AudioGeneratorService.sAutoPresetDsp);
-        svc.putExtra("bass_boost_db", S6AudioGeneratorService.sBassBoostDb);
-        svc.putExtra("limiter_mode", S6AudioGeneratorService.sLimiterMode);
-        svc.putExtra("channel_mode", S6AudioGeneratorService.sChannelMode);
-        svc.putExtra("harmonic_exciter", S6AudioGeneratorService.sHarmonicExciter);
-        startService(svc);
-
-        Toast.makeText(this, toastMsg + " (영구 저장됨)", Toast.LENGTH_SHORT).show();
-    }
-
-    private void setBassBoost(float db) {
-        S6AudioGeneratorService.sBassBoostDb = db;
-        notifyDspChanged(String.format("저음 부스트 +%.0fdB 적용", db));
-    }
-
-    private void addHalfPresetButton(LinearLayout row, String title, String subtitle, String dspDesc, String accentColorHex, View.OnClickListener listener) {
+    private void addFullPresetButton(LinearLayout parent, String mainText, String subText, String dspText,
+                                     String accentColor, View.OnClickListener listener) {
         float density = getResources().getDisplayMetrics().density;
-        LinearLayout btn = new LinearLayout(this);
-        btn.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
 
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#161B22"));
-        bg.setCornerRadius(10 * density);
-        bg.setStroke((int)(1.5f * density), Color.parseColor(accentColorHex));
-        btn.setBackground(bg);
-        btn.setPadding((int)(12 * density), (int)(12 * density), (int)(12 * density), (int)(12 * density));
-        btn.setClickable(true);
-        btn.setFocusable(true);
-        btn.setOnClickListener(listener);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        lp.setMargins((int)(4 * density), (int)(4 * density), (int)(4 * density), (int)(4 * density));
-        btn.setLayoutParams(lp);
-
-        TextView tTitle = new TextView(this);
-        tTitle.setText(title);
-        tTitle.setTextSize(13);
-        tTitle.setTextColor(Color.parseColor(accentColorHex));
-        tTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.addView(tTitle);
-
-        TextView tSub = new TextView(this);
-        tSub.setText(subtitle);
-        tSub.setTextSize(11);
-        tSub.setTextColor(Color.parseColor("#FFFFFF"));
-        tSub.setTypeface(Typeface.DEFAULT_BOLD);
-        tSub.setPadding(0, (int)(4 * density), 0, (int)(2 * density));
-        btn.addView(tSub);
-
-        TextView tDsp = new TextView(this);
-        tDsp.setText(dspDesc);
-        tDsp.setTextSize(10);
-        tDsp.setTextColor(Color.parseColor("#00FF66"));
-        tDsp.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.addView(tDsp);
-
-        row.addView(btn);
-    }
-
-    private void addFullPresetButton(LinearLayout parent, String title, String subtitle, String dspDesc, String accentColorHex, View.OnClickListener listener) {
-        float density = getResources().getDisplayMetrics().density;
-        LinearLayout btn = new LinearLayout(this);
-        btn.setOrientation(LinearLayout.VERTICAL);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.parseColor("#161B22"));
-        bg.setCornerRadius(10 * density);
-        bg.setStroke((int)(1.5f * density), Color.parseColor(accentColorHex));
-        btn.setBackground(bg);
-        btn.setPadding((int)(14 * density), (int)(12 * density), (int)(14 * density), (int)(12 * density));
-        btn.setClickable(true);
-        btn.setFocusable(true);
-        btn.setOnClickListener(listener);
+        bg.setColor(Color.parseColor("#1E293B"));
+        bg.setCornerRadius(8 * density);
+        bg.setStroke((int)(1 * density), Color.parseColor("#334155"));
+        card.setBackground(bg);
+        card.setPadding((int)(12 * density), (int)(10 * density), (int)(12 * density), (int)(10 * density));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(0, (int)(4 * density), 0, (int)(6 * density));
-        btn.setLayoutParams(lp);
+        lp.setMargins(0, (int)(3 * density), 0, (int)(5 * density));
+        card.setLayoutParams(lp);
 
-        TextView tTitle = new TextView(this);
-        tTitle.setText(title);
-        tTitle.setTextSize(14);
-        tTitle.setTextColor(Color.parseColor(accentColorHex));
-        tTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.addView(tTitle);
+        TextView tvMain = new TextView(this);
+        tvMain.setText(mainText);
+        tvMain.setTextSize(13);
+        tvMain.setTextColor(Color.parseColor("#FFFFFF"));
+        tvMain.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(tvMain);
 
-        TextView tSub = new TextView(this);
-        tSub.setText(subtitle);
-        tSub.setTextSize(12);
-        tSub.setTextColor(Color.parseColor("#FFFFFF"));
-        tSub.setTypeface(Typeface.DEFAULT_BOLD);
-        tSub.setPadding(0, (int)(4 * density), 0, (int)(2 * density));
-        btn.addView(tSub);
+        TextView tvSub = new TextView(this);
+        tvSub.setText(subText);
+        tvSub.setTextSize(11);
+        tvSub.setTextColor(Color.parseColor("#CBD5E1"));
+        tvSub.setPadding(0, (int)(2 * density), 0, (int)(2 * density));
+        card.addView(tvSub);
 
-        TextView tDsp = new TextView(this);
-        tDsp.setText(dspDesc);
-        tDsp.setTextSize(11);
-        tDsp.setTextColor(Color.parseColor("#00FF66"));
-        tDsp.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.addView(tDsp);
+        TextView tvDsp = new TextView(this);
+        tvDsp.setText(dspText);
+        tvDsp.setTextSize(10);
+        tvDsp.setTextColor(Color.parseColor(accentColor));
+        tvDsp.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(tvDsp);
 
-        parent.addView(btn);
+        card.setOnClickListener(listener);
+        parent.addView(card);
     }
 
-    private void startPresetWithDsp(
-            boolean isSweep, float freq, float subFreq, float sweepMin, float sweepMax, float sweepSec,
-            boolean fmOn, float fmDepth, float fmRate,
-            boolean amOn, float amDepth, float amRate,
-            boolean rmOn, float rmDepth, float rmRate,
-            float presetBoostDb, int presetLimiter, int presetChannel, boolean presetHarmonic,
-            String title, String knobGuide) {
-
-        Intent svc = new Intent(this, S6AudioGeneratorService.class);
-        svc.putExtra("mode", isSweep ? "sweep" : "single");
-        svc.putExtra("sweep", isSweep);
-        if (isSweep) {
-            svc.putExtra("sweep_min", sweepMin);
-            svc.putExtra("sweep_max", sweepMax);
-            svc.putExtra("sweep_sec", sweepSec);
-            svc.putExtra("sub_freq", subFreq);
+    private void startPreset(boolean sweep, float freq, float subFreq, float sMin, float sMax, float sSec,
+                             boolean fmOn, float fmDepth, float fmRate,
+                             boolean amOn, float amDepth, float amRate,
+                             boolean rmOn, float rmDepth, float rmRate,
+                             float boostDb, int limiterMode, int channelMode, boolean exciter, int volStep,
+                             String title, String knobGuide) {
+        Intent it = new Intent(this, S6AudioGeneratorService.class);
+        it.putExtra("action", "start");
+        it.putExtra("sweep", sweep);
+        if (sweep) {
+            it.putExtra("sweep_min", sMin);
+            it.putExtra("sweep_max", sMax);
+            it.putExtra("sweep_sec", sSec);
         } else {
-            svc.putExtra("freq", freq);
-            svc.putExtra("sub_freq", subFreq);
+            it.putExtra("freq", freq);
+            it.putExtra("sub_freq", subFreq);
+        }
+        it.putExtra("fm_on", fmOn);
+        it.putExtra("fm_depth", fmDepth);
+        it.putExtra("fm_rate", fmRate);
+
+        it.putExtra("am_on", amOn);
+        it.putExtra("am_depth", amDepth);
+        it.putExtra("am_rate", amRate);
+
+        it.putExtra("rm_on", rmOn);
+        it.putExtra("rm_depth", rmDepth);
+        it.putExtra("rm_rate", rmRate);
+
+        it.putExtra("bass_boost_db", boostDb);
+        it.putExtra("limiter_mode", limiterMode);
+        it.putExtra("channel_mode", channelMode);
+        it.putExtra("harmonic_exciter", exciter);
+        it.putExtra("vol_step", volStep);
+
+        String partTag = "[메인 파트]";
+        if (mCurrentSplitMode == 2 || title.contains("서브1") || title.contains("상황") || title.contains("보복") || title.contains("심리")) {
+            partTag = "[서브1 파트]";
+        } else if (mCurrentSplitMode == 3 || title.contains("서브2") || title.contains("장기") || title.contains("취침") || title.contains("출근")) {
+            partTag = "[서브2 파트]";
+        } else if (mCurrentSplitMode == 1) {
+            partTag = "[메인 파트]";
+        }
+        S6AudioGeneratorService.sActivePart = partTag;
+        S6AudioGeneratorService.sScenarioName = title;
+
+        it.putExtra("title", title);
+        it.putExtra("part", partTag);
+        it.putExtra("scenario", title);
+        it.putExtra("knob_guide", knobGuide);
+
+        S6AudioGeneratorService.sIsPlaying = true;
+        S6AudioGeneratorService.sModeTitle = title;
+        if (sweep) {
+            S6AudioGeneratorService.sIsSweepMode = true;
+            S6AudioGeneratorService.sSweepMin = sMin;
+            S6AudioGeneratorService.sSweepMax = sMax;
+            S6AudioGeneratorService.sInstantFreq = sMin;
+        } else {
+            S6AudioGeneratorService.sIsSweepMode = false;
+            S6AudioGeneratorService.sTargetFreq = freq;
+            S6AudioGeneratorService.sInstantFreq = freq;
         }
 
-        svc.putExtra("fm_on", fmOn);
-        svc.putExtra("fm_depth", fmDepth);
-        svc.putExtra("fm_rate", fmRate);
-
-        svc.putExtra("am_on", amOn);
-        svc.putExtra("am_depth", amDepth);
-        svc.putExtra("am_rate", amRate);
-
-        svc.putExtra("rm_on", rmOn);
-        svc.putExtra("rm_depth", rmDepth);
-        svc.putExtra("rm_rate", rmRate);
-
-        if (S6AudioGeneratorService.sAutoPresetDsp) {
-            svc.putExtra("bass_boost_db", presetBoostDb);
-            svc.putExtra("limiter_mode", presetLimiter);
-            svc.putExtra("channel_mode", presetChannel);
-            svc.putExtra("harmonic_exciter", presetHarmonic);
-        } else {
-            svc.putExtra("bass_boost_db", S6AudioGeneratorService.sBassBoostDb);
-            svc.putExtra("limiter_mode", S6AudioGeneratorService.sLimiterMode);
-            svc.putExtra("channel_mode", S6AudioGeneratorService.sChannelMode);
-            svc.putExtra("harmonic_exciter", S6AudioGeneratorService.sHarmonicExciter);
-        }
-
-        svc.putExtra("title", title);
-        svc.putExtra("knob", knobGuide);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(svc);
-        } else {
-            startService(svc);
-        }
-
-        S6VolumeHelper.ensureTargetVolumeIfNeeded(this, true);
-        refreshDspButtonsUi();
-
-        Toast.makeText(this, title + " 발진 시작 (자유 볼륨/안전해제)", Toast.LENGTH_SHORT).show();
-    }
-
-    private void stopFrequencyService() {
-        Intent svc = new Intent(this, S6AudioGeneratorService.class);
-        svc.putExtra("action", "stop");
-        startService(svc);
-        Toast.makeText(this, "주파수 발진 정지 (DSP 설정 보존)", Toast.LENGTH_SHORT).show();
+        startService(it);
+        Toast.makeText(this, title + " 발진 시작", Toast.LENGTH_SHORT).show();
         syncTelemetryUi();
     }
 
     private void syncTelemetryUi() {
+        boolean isPlaying = S6AudioGeneratorService.sIsPlaying;
+        float density = getResources().getDisplayMetrics().density;
+
+        if (mStatusCardLayout != null) {
+            GradientDrawable scBg = new GradientDrawable();
+            scBg.setCornerRadius(8 * density);
+            scBg.setColor(Color.parseColor("#111827")); // AMOLED Deep Slate (Never green background!)
+            if (isPlaying) {
+                scBg.setStroke((int)(2 * density), Color.parseColor("#10B981")); // Vivid Emerald Green border
+            } else {
+                scBg.setStroke((int)(2 * density), Color.parseColor("#EF4444")); // Warning Crimson Red border
+            }
+            mStatusCardLayout.setBackground(scBg);
+        }
+
+        if (mStatusTrafficLight != null) {
+            GradientDrawable trafficDot = new GradientDrawable();
+            trafficDot.setShape(GradientDrawable.OVAL);
+            if (isPlaying) {
+                trafficDot.setColor(Color.parseColor("#00E676")); // Neon Green Traffic Light
+            } else {
+                trafficDot.setColor(Color.parseColor("#FF3366")); // Neon Red Traffic Light
+            }
+            mStatusTrafficLight.setImageDrawable(trafficDot);
+        }
+
         if (mStatusMode != null) {
-            mStatusMode.setText("현재 모드: " + S6AudioGeneratorService.sModeTitle);
+            if (isPlaying) {
+                mStatusMode.setText("상태: [발진 중] " + S6AudioGeneratorService.sActivePart);
+                mStatusMode.setTextColor(Color.parseColor("#00E676")); // Neon Traffic Light Green
+            } else {
+                mStatusMode.setText("상태: [작동 중지] 멈춤 (대기 상태)");
+                mStatusMode.setTextColor(Color.parseColor("#FF3366")); // Neon Traffic Light Red
+            }
         }
+
+        if (mStatusScenario != null) {
+            if (isPlaying) {
+                mStatusScenario.setText("시나리오: " + S6AudioGeneratorService.sScenarioName);
+                mStatusScenario.setTextColor(Color.parseColor("#00F0FF")); // Electric Cyan
+            } else {
+                mStatusScenario.setText("시나리오: 대기 중 (선택 없음)");
+                mStatusScenario.setTextColor(Color.parseColor("#64748B"));
+            }
+        }
+
         if (mStatusFreq != null) {
-            if (S6AudioGeneratorService.sIsPlaying) {
-                if (S6AudioGeneratorService.sIsSweepMode) {
-                    mStatusFreq.setText(String.format("실시간 발진: %.2f Hz (스윕 %.1f~%.1fHz) | 0.00dBFS True-Peak",
-                            S6AudioGeneratorService.sInstantFreq,
-                            S6AudioGeneratorService.sSweepMin,
-                            S6AudioGeneratorService.sSweepMax));
-                } else {
-                    mStatusFreq.setText(String.format("실시간 발진: %.2f Hz 고정 (0.00 dBFS True-Peak)",
-                            S6AudioGeneratorService.sInstantFreq));
-                }
+            if (!isPlaying) {
+                mStatusFreq.setText("발진: 0.00 Hz (출력 차단 / MUTE)");
+                mStatusFreq.setTextColor(Color.parseColor("#94A3B8")); // Muted Gray
+            } else if (S6AudioGeneratorService.sIsSweepMode) {
+                mStatusFreq.setText(String.format("발진: %.2f Hz 실시간 (%.1f~%.1fHz 스윕)",
+                        S6AudioGeneratorService.sInstantFreq, S6AudioGeneratorService.sSweepMin, S6AudioGeneratorService.sSweepMax));
+                mStatusFreq.setTextColor(Color.parseColor("#FFD700")); // High-brightness & saturation Green
             } else {
-                mStatusFreq.setText("실시간 발진: 정지됨 (출력 대기 상태)");
+                mStatusFreq.setText(String.format("발진: %.2f Hz 직타 고정 (-1.5dBFS True-Peak)",
+                        S6AudioGeneratorService.sTargetFreq));
+                mStatusFreq.setTextColor(Color.parseColor("#FFD700")); // High-brightness & saturation Green
             }
         }
+
         if (mStatusMod != null) {
-            mStatusMod.setText("변조 상태: " + S6AudioGeneratorService.buildModulationSummary());
-        }
-        if (mStatusDsp != null) {
-            mStatusDsp.setText("Vorta DSP: " + S6AudioGeneratorService.buildVortaDspSummary());
-        }
-        if (mStatusSignal != null) {
-            if (S6AudioGeneratorService.sIsPlaying) {
-                mStatusSignal.setText(String.format("검수: 48,000Hz Native | Peak %d/32767(0.00dBFS) | RMS %.2fdBFS | DC %.4f | 왜곡 0%%",
-                        S6AudioGeneratorService.sLastPeak,
-                        S6AudioGeneratorService.sLastRmsDb,
-                        S6AudioGeneratorService.sLastDcOffset));
+            if (!isPlaying) {
+                mStatusMod.setText("변조: 비활성 (주파수 신호 멈춤) | BTL 대기");
+                mStatusMod.setTextColor(Color.parseColor("#64748B"));
             } else {
-                mStatusSignal.setText("검수: 48,000Hz Native Direct PCM 대기 중");
+                StringBuilder sb = new StringBuilder("변조: ");
+                boolean hasMod = false;
+                if (S6AudioGeneratorService.sFmEnabled) {
+                    sb.append(String.format("FM %.1f%%(%.2fHz) ", S6AudioGeneratorService.sFmDepth * 100f, S6AudioGeneratorService.sFmRateHz));
+                    hasMod = true;
+                }
+                if (S6AudioGeneratorService.sAmEnabled) {
+                    sb.append(String.format("AM %.1f%%(%.2fHz) ", S6AudioGeneratorService.sAmDepth * 100f, S6AudioGeneratorService.sAmRateHz));
+                    hasMod = true;
+                }
+                if (S6AudioGeneratorService.sRmEnabled) {
+                    sb.append(String.format("RM %.1f%%(%.2fHz) ", S6AudioGeneratorService.sRmDepth * 100f, S6AudioGeneratorService.sRmRateHz));
+                    hasMod = true;
+                }
+                if (!hasMod) sb.append("무변조 순수 사인파 ");
+                sb.append("| BTL 모노");
+                mStatusMod.setText(sb.toString());
+                mStatusMod.setTextColor(Color.parseColor("#F472B6"));
             }
         }
+
         if (mStatusKnob != null) {
-            mStatusKnob.setText("앰프 가이드: " + S6AudioGeneratorService.sKnobGuide);
+            mStatusKnob.setText("앰프 노브: Lepy LP-168S [5개 다이얼] SUB VOL 3~5시 (정격 68W 골전도 풀파워) | X-OVER 80Hz | BASS 0dB");
         }
     }
 }

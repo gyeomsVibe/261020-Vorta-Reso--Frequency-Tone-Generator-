@@ -29,9 +29,8 @@ public class S6VolumeHelper {
                 Settings.System.putInt(context.getContentResolver(), "safe_volume_multimedia", 0);
                 Settings.System.putInt(context.getContentResolver(), "safe_volume_state", 0);
                 Settings.System.putInt(context.getContentResolver(), "volume_limiter_enable", 0);
-                Settings.System.putInt(context.getContentResolver(), "volume_limiter_value", 15);
                 Settings.System.putInt(context.getContentResolver(), "volumelimit_on", 0);
-                Settings.System.putInt(context.getContentResolver(), "screen_off_timeout", 60000); // 1 minute normal screen timeout
+                // Do NOT touch screen_off_timeout: respect user's desired display on time!
             }
         } catch (Exception ignored) {}
     }

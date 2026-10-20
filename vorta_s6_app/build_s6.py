@@ -110,14 +110,16 @@ def main():
         print(f"[8/8] Installing onto Galaxy S6 ({DEVICE_SERIAL})...")
         run_cmd([ADB, "-s", DEVICE_SERIAL, "install", "-r", final_apk], "ADB install")
 
-        print("Launching Vorta Reso S6 v2.8...")
+        print("Launching Vorta Reso S6 v3.0...")
         run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "am", "start", "-n", "com.vorta.s6frequency/.MainActivity"], "ADB launch")
 
-        print("Configuring system safe volume unlock (free manual volume control)...")
+        print("Configuring system safe volume unlock and screen-off normalization...")
+        run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "pm", "grant", "com.vorta.s6frequency", "android.permission.WRITE_SECURE_SETTINGS"], "Grant permission")
         run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "settings", "put", "system", "volume_limiter_enable", "0"], "Disable vol limiter")
         run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "settings", "put", "system", "volume_limiter_value", "15"], "Set limiter max 15")
         run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "settings", "put", "global", "audio_safe_volume_state", "2"], "Safe volume state 2")
-        run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "settings", "put", "global", "safe_media_volume_active", "0"], "Safe media vol 0")
+        run_cmd([ADB, "-s", DEVICE_SERIAL, "shell", "settings", "put", "global", "stay_on_while_plugged_in", "0"], "Stay on 0")
+        # screen_off_timeout is untouched (respecting user UX preferences)
     else:
         print(f"[INFO] Galaxy S6 ({DEVICE_SERIAL}) not connected via USB. APK ready at: {final_apk}")
 

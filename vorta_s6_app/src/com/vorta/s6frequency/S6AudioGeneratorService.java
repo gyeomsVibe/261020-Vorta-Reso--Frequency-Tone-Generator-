@@ -21,7 +21,7 @@ import android.util.Log;
 public class S6AudioGeneratorService extends Service {
     private static final String TAG = "S6AudioService";
     private static final String AUDIT_TAG = "S6AudioAudit";
-    private static final String CHANNEL_ID = "vorta_reso_s6_channel";
+    private static final String CHANNEL_ID = "vorta_reso_s6_silent_v3";
     private static final int NOTIF_ID = 2601;
 
     public static final String PREF_NAME = "vorta_s6_dsp_prefs";
@@ -65,6 +65,8 @@ public class S6AudioGeneratorService extends Service {
     public static volatile float sRmDepth = 0.0f;
     public static volatile float sRmRateHz = 1.0f;
 
+    public static volatile String sActivePart = "[메인 파트]";
+    public static volatile String sScenarioName = "[오전 07~13시] 표준 스케줄";
     public static volatile String sModeTitle = "보르타 레조 S6 vNext 대기 중";
     public static volatile String sKnobGuide = "LP-168S 노브: SUB 3.5(9시반) | X-OVER 65~85Hz(10시) | BASS 12~1시 | TREBLE 7시(-10) | VOL 5.5(12시반)";
     public static volatile int sLastPeak = 32767;
@@ -102,8 +104,20 @@ public class S6AudioGeneratorService extends Service {
                 .apply();
     }
 
+    public static void muteSystemAlertStreams(Context context) {
+        try {
+            AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                am.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
+                am.setStreamVolume(AudioManager.STREAM_RING, 0, 0);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Override
     public void onCreate() {
+        muteSystemAlertStreams(this);
         super.onCreate();
         loadConfig(this);
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -116,6 +130,16 @@ public class S6AudioGeneratorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        muteSystemAlertStreams(this);
+        if (intent != null) {
+            if (intent.hasExtra("part")) {
+                sActivePart = intent.getStringExtra("part");
+            }
+            if (intent.hasExtra("scenario")) {
+                sScenarioName = intent.getStringExtra("scenario");
+            }
+        }
+
         if (intent != null) {
             String action = intent.getStringExtra("action");
             if ("stop".equalsIgnoreCase(action)) {
@@ -159,16 +183,16 @@ public class S6AudioGeneratorService extends Service {
                 boolean sweep = intent.getBooleanExtra("sweep", false)
                         || "sweep".equalsIgnoreCase(intent.getStringExtra("mode"));
                 if (sweep) {
-                    sSweepMin = intent.getFloatExtra("sweep_min", 38.0f);
-                    sSweepMax = intent.getFloatExtra("sweep_max", 68.0f);
+                    sSweepMin = clamp(intent.getFloatExtra("sweep_min", 24.0f), 1.0f, 55.0f);
+                    sSweepMax = clamp(intent.getFloatExtra("sweep_max", 55.0f), 1.0f, 55.0f);
                     float sDur = intent.getFloatExtra("sweep_sec", 60.0f);
                     sSweepPeriodSec = (sDur >= 1.0f) ? sDur : 60.0f;
                     sIsSweepMode = true;
-                    sSubFreq = intent.getFloatExtra("sub_freq", 0.0f);
+                    sSubFreq = clamp(intent.getFloatExtra("sub_freq", 0.0f), 0.0f, 55.0f);
                 } else {
-                    sTargetFreq = intent.getFloatExtra("freq", 55.0f);
+                    sTargetFreq = clamp(intent.getFloatExtra("freq", 55.0f), 1.0f, 55.0f);
                     sInstantFreq = sTargetFreq;
-                    sSubFreq = intent.getFloatExtra("sub_freq", 0.0f);
+                    sSubFreq = clamp(intent.getFloatExtra("sub_freq", 0.0f), 0.0f, 55.0f);
                     sIsSweepMode = false;
                 }
                 mPhaseResetRequested = true;
@@ -309,6 +333,7 @@ public class S6AudioGeneratorService extends Service {
                     channel.setDescription("S6 트랜스2 68W BTL 무왜곡 주파수 백그라운드 발진 알림");
                     channel.setSound(null, null);
                     channel.enableVibration(false);
+                channel.setShowBadge(false);
                     nm.createNotificationChannel(channel);
                 }
             }
@@ -318,6 +343,8 @@ public class S6AudioGeneratorService extends Service {
     private synchronized void stopAudio() {
         mIsRunning = false;
         sIsPlaying = false;
+        sModeTitle = "🛑 [작동 중지] 발진 멈춤 (대기 상태)";
+        sInstantFreq = 0.0f;
         if (mAudioThread != null) {
             mAudioThread.interrupt();
             mAudioThread = null;
@@ -385,12 +412,14 @@ public class S6AudioGeneratorService extends Service {
                 sweepPhase += sweepStep;
                 if (sweepPhase >= twoPi) sweepPhase -= twoPi;
             }
+            if (baseFreq > 55.0) baseFreq = 55.0;
+            if (baseFreq < 1.0) baseFreq = 1.0;
 
             // 2. Frequency Modulation (FM / Vibrato)
             double instFreq = baseFreq;
             if (fmOn && fmDepth > 0.0) {
                 double fmOffset = baseFreq * fmDepth * Math.sin(fmPhase);
-                instFreq = Math.max(0.1, baseFreq + fmOffset);
+                instFreq = Math.max(1.0, Math.min(55.0, baseFreq + fmOffset));
                 fmPhase += fmStep;
                 if (fmPhase >= twoPi) fmPhase -= twoPi;
             }
@@ -427,22 +456,16 @@ public class S6AudioGeneratorService extends Service {
                 if (rmPhase >= twoPi) rmPhase -= twoPi;
             }
 
-            // 5. Vorta DSP Sub-Bass Tuner + True-Peak Limiter / Normalized Analog Saturator
-            if (driveK > 1.001) {
-                if (limiterMode == 1) {
-                    sig = Math.tanh(driveK * sig) * invTanhK;
-                } else {
-                    sig = Math.tanh(driveK * 0.85 * sig) / Math.tanh(driveK * 0.85);
-                }
-            } else {
-                if (sig > 1.0) sig = 1.0;
-                else if (sig < -1.0) sig = -1.0;
-            }
+                        // 5. Pure Undistorted Sine Wave Engine (-1.0 dBTP True-Peak Ceiling)
+            // Eliminates harmonic distortion, clipping buzzing, and voice coil overheating,
+            // focusing 100% acoustic energy into pure fundamental kinetic vibration!
+            final double TRUE_PEAK_CEILING = 0.89125; // -1.0 dBTP True-Peak Headroom
+            if (sig > 1.0) sig = 1.0;
+            else if (sig < -1.0) sig = -1.0;
 
-            // 6. Symmetric nearest-integer quantization at exact 16-bit full scale (32767 = 0.00 dBFS)
-            long quant = Math.round(sig * 32767.0);
-            if (quant > 32767L) quant = 32767L;
-            if (quant < -32767L) quant = -32767L;
+            long quant = Math.round(sig * 32767.0 * TRUE_PEAK_CEILING);
+            if (quant > 29200L) quant = 29200L;
+            if (quant < -29200L) quant = -29200L;
             short sample = (short) quant;
 
             // 7. Vorta DSP Channel Phase & Trans2 BTL Output Matrix
