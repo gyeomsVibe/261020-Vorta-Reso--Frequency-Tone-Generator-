@@ -79,4 +79,4 @@
 
 **All Rights Reserved (모든 권리 보유).** 오픈소스가 아닙니다. 공개 저장소이므로 누구나 코드를 볼 수는 있지만, 복사·수정·배포·상업적 사용에는 저작권자의 서면 허락이 필요합니다. 평가와 시연 목적의 열람만 허용됩니다. 자세한 내용은 [LICENSE](LICENSE)를 보세요.
 
-문의: GitHub [@gyeomsVibe](https://github.com/gyeomsVibe)
+문의: yoongyeomkim@naver.com · GitHub [@gyeomsVibe](https://github.com/gyeomsVibe)
