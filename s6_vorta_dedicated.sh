@@ -40,6 +40,7 @@ com.sec.android.gallery3d.panorama360view
 com.sec.android.app.camera.plb
 com.sec.android.widgetapp.samsungapps
 com.samsung.android.videolist
+com.skms.android.agent
 "
 # 2) Disable only (uninstall hangs): Samsung Pay and its frameworks.
 DIS="
