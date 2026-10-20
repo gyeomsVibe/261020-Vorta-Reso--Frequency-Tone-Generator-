@@ -80,8 +80,8 @@ public class S6AudioGeneratorService extends Service {
     // Pure-sine woofer protection (2026-10-20 user receipt: roar/noise on all 3 devices).
     // Gain ramps 0->1 over 1.0 s on start and 1->0 over 0.5 s on stop: a step from silence to
     // full scale is a broadband click that slams the cone. Below 20 Hz a vented woofer unloads
-    // and over-excurses (the roar), so the carrier floor is 20 Hz.
-    private static final double FREQ_FLOOR_HZ = 20.0;
+    // and over-excurses; that is handled by amp X-OVER/SUB, never by rewriting scenario Hz.
+    private static final double FREQ_FLOOR_HZ = 1.0; // engine safety only; scenario frequencies are never altered (principle 16)
     private static final double FADE_IN_SEC = 1.0;
     private static final double FADE_OUT_SEC = 0.5;
     private double mGain = 0.0;
@@ -611,14 +611,14 @@ public class S6AudioGeneratorService extends Service {
                     double amDepth = sAmDepth;
                     double amRate = sAmRateHz;
 
-                    boolean rmOn = false; // pure sine: ring-mod sidebands off
+                    boolean rmOn = sRmEnabled;
                     double rmDepth = sRmDepth;
                     double rmRate = sRmRateHz;
 
                     float boostDb = sBassBoostDb;
                     int limiter = sLimiterMode;
                     int channel = sChannelMode;
-                    boolean exciter = false; // pure sine: no added 2nd harmonic
+                    boolean exciter = sHarmonicExciter;
 
                     int writtenShorts = synthesizeFrameBuffer(
                             pcmBuffer,
